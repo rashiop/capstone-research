@@ -1,57 +1,154 @@
-## Research 1 — Answer Sheet
+# Research 1 — Institutional Custody Problem
 
-### What problem does institutional custody solve?
+## Institutional Users
 
-> TBD
+- [x] Treasury / Finance
+- [x] Administrator
+- [x] Initiator
+- [x] Approver
+- [x] Authorized Signer
+- [x] Trader / Operator
+- [x] Compliance / Risk
+- [x] Auditor
+- [x] Developer / Integration
 
-### Who are the users?
+### Key finding
+> Institutional custody uses separation of duties. The person initiating a transaction does not necessarily have authority to approve or sign it.
 
-> TBD
+---
+## Institutional Workflow
+Typical flow:
+Transaction Request
+→ Policy Evaluation
+→ Allow / Approval Required / Deny
+→ Approval / Consensus
+→ Signing
+→ Blockchain
 
-### What are institutions trying to protect against?
+### Key finding
+> Transaction initiation, policy evaluation, approval and signing can be separate responsibilities.
 
-- [ ] Unauthorized transactions
-- [ ] Excessive spending
-- [ ] Wrong destinations
-- [ ] Insider abuse
-- [ ] Operational mistakes
-- [ ] Lack of approval separation
-- [ ] Unsupported assets/chains
-- [ ] Lack of auditability
+---
+## Policy Requirements
+Common policy dimensions:
+- Source
+- Destination
+- Asset
+- Amount
+- Spending limit
+- Velocity limit
+- Initiator
+- Whitelist
+- Approval requirements
+- Role/permission
+- Smart-contract/function interaction
 
-### What controls appear repeatedly in existing systems?
+### Generic policy model
+Scope
+→ Trigger
+→ Conditions
+→ Action
 
-- [x] Transaction limits
-- [x] Velocity limits
-- [x] Address whitelisting
-- [x] User roles
-- [x] Approval workflows
-- [x] Policy rules
-- [ ] Asset restrictions
-- [ ] Chain restrictions
-- [ ] Emergency controls
-- [ ] Receiving controls
+Possible actions:
+- ALLOW
+- REQUIRE_APPROVAL
+- DENY
 
-### What is custody?
+---
 
-> Safeguarding/control of institutional digital assets and the associated signing/key-management infrastructure.
+## On-Chain vs Off-Chain
 
-### What is the policy layer?
+### Good candidates for on-chain enforcement
+- Transaction amount
+- Destination address
+- Asset
+- Spending limits
+- Velocity limits
+- Approval state
+- Roles
+- Emergency pause
+- Contract/function allowlists
 
-> Rules that determine who can perform which asset operations and under what conditions.
+### Better suited to off-chain systems
+- KYC
+- Sanctions screening
+- Invoice matching
+- ERP/accounting data
+- Employee identity systems
+- Risk scoring
+- Business context
+- Compliance data
 
-### What could our project provide?
+### Key principle
 
-> A programmable smart-contract policy layer that controls institutional asset movement while custody/key management can remain with an external custody or wallet infrastructure.
+The blockchain should enforce objective rules based on verifiable on-chain state.
 
-### What should NOT be our core responsibility?
+External business/compliance context can be provided by off-chain infrastructure.
 
-- [ ] MPC/key management
-- [ ] Full custody provider
-- [ ] Compliance provider
-- [ ] Blockchain/bridge infrastructure
-- [ ] AI agent
+---
 
-### Key Insight
+## Custody Boundary
 
-> Institutional custody is not only about storing assets securely. A major part of the problem is controlling how institutional assets can be moved and ensuring that transactions follow organizational policies.
+### Custodian
+
+Responsible for custody/security/execution infrastructure such as:
+
+- Key management
+- MPC
+- Wallet infrastructure
+- Signing
+- Secure storage
+- Transaction execution
+
+### MPC
+
+Answers:
+
+> How do we securely authorize/sign?
+
+### Policy Engine
+
+Answers:
+
+> Should this transaction be allowed to reach the signing stage?
+
+### Our Project
+
+Should primarily focus on:
+
+> Programmable institutional transaction-control infrastructure.
+
+We should not attempt to become:
+
+- Full custody provider
+- MPC provider
+- Key-management system
+- Compliance provider
+- Blockchain bridge
+
+---
+
+## Current Project Positioning
+
+> We are building a programmable smart-contract policy layer that controls institutional asset movement while custody/key management can remain with an external custody or wallet infrastructure.
+
+### Core
+
+- Transaction limits
+- Velocity/daily limits
+- Address allowlists
+- Asset restrictions
+- Role-based permissions
+- Approval requirements
+- Emergency controls
+- Auditability
+
+### Future / Advanced
+
+- Cross-chain policy enforcement
+- Receiving/payment controls
+- Multi-level approvals
+- Function-level DeFi controls
+- ERC-4337 / EIP-7702
+- Gas sponsorship
+- MCP / AI integration
