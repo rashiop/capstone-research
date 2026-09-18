@@ -443,3 +443,91 @@ Sources
 * Coinbase Prime — Onchain Policy Engine
 * Coinbase Prime — Perform an Onchain Wallet Transaction
 * Coinbase Prime — Consensus for Onchain Wallet
+
+# Research 4 - Core Policy
+Upgradeable, policy-controlled institutional treasury layer with governed upgrades, namespaced storage, configurable policies, approval requirements, spending controls, and a final on-chain execution gate.
+
+	| Component                   | MVP                               |
+	| --------------------------- | --------------------------------- |
+	| Policy engine               | Yes                               |
+	| Upgradeable                 | Yes                               |
+	| UUPS                        | Yes, candidate architecture       |
+	| ERC-7201                    | Yes                               |
+	| Policy versioning           | Yes                               |
+	| Spending limits             | Yes                               |
+	| Daily/velocity limits       | Yes                               |
+	| Asset allowlist             | Yes                               |
+	| Recipient allowlist         | Yes                               |
+	| Chain allowlist             | Yes                               |
+	| Approval thresholds         | Yes                               |
+	| Emergency pause             | Yes                               |
+	| Audit events                | Yes                               |
+	| Role-based governance       | Yes                               |
+	| Upgrade governance          | Yes                               |
+	| Arbitrary calldata policies | Limited initially                 |
+	| ERC-7579                    | Optional integration              |
+	| EIP-7702                    | Optional integration              |
+	| ERC-7730                    | Future integration                |
+	| MCP                         | Interface, not security authority |
+
+```
+Upgradeable Institutional Policy Infrastructure
+│
+├── Upgradeable Policy Engine
+│   ├── Policy registry
+│   ├── Policy evaluation
+│   ├── Spending limits
+│   ├── Velocity accounting
+│   ├── Allowlists
+│   ├── Approval requirements
+│   └── Emergency controls
+│
+├── Upgradeable Governance / Access
+│
+├── Upgradeable Account / Execution Integration
+│
+└── ERC-7201 Namespaced Storage 
+```
+
+OZ's UUPS for policy, so we use namespaced layout
+```text
+Layout:
+InstitutionalPolicy
+├── Policy namespace
+├── Approval namespace
+├── Limit namespace
+├── Allowlist namespace
+└── Governance namespace
+
+Upgrade:
+                    Proxy
+                      │
+                 ERC-1967
+                      │
+                      ▼
+             PolicyEngine V1
+                      │
+                 upgrade
+                      │
+                      ▼
+             PolicyEngine V2
+        
+Results:     
+        PolicyEngine implementation V2
+        │
+        ├── Treasury Policy V7
+        ├── Payroll Policy V3
+        └── Operations Policy V5
+```
+Guarantee:
+
+Only authorized accounts/requesters can initiate controlled actions.
+Only approved assets and chains can be used.
+Only approved destinations can receive funds.
+Transactions cannot exceed configured per-transaction limits.
+Aggregate spending cannot exceed configured velocity/daily limits.
+Transactions above configured thresholds can require additional approval.
+Emergency pause can prevent policy-controlled execution.
+Policy decisions are bound to the exact transaction intent.
+Policy changes are authorized and versioned.
+Every execution path must pass the policy enforcement boundary.
