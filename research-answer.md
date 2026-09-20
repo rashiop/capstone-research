@@ -531,3 +531,37 @@ Emergency pause can prevent policy-controlled execution.
 Policy decisions are bound to the exact transaction intent.
 Policy changes are authorized and versioned.
 Every execution path must pass the policy enforcement boundary.
+
+# Research 5 - Payments control
+Clearance status: PENDING, HELD, CLEARED, SETTLED, REJECTED, EXPIRED
+Reject 
+- unknown paymentId
+- expired paymentId
+- settled paymentId
+- wrong payer, asset, amount
+Prevent replay, signature: deadline, payment status, payment nonce
+
+
+Role separations:
+- Smart contract roles: Verify authority & binding of a clearance
+- Off chain: reconciliation, KYC, sanctions screening, risk assessment, fraud detection, internal compliance review 
+
+| Requirement         |                   On-chain? | Reason                               |
+| ------------------- | --------------------------: | ------------------------------------ |
+| Allowed asset       |                     **Yes** | Token address is known               |
+| Allowed sender      |                     **Yes** | Address is known                     |
+| Amount min/max      |                     **Yes** | Deterministic                        |
+| Destination account |                     **Yes** | Contract state                       |
+| Payment ID          |                     **Yes** | State binding                        |
+| Payment deadline    |                     **Yes** | Timestamp                            |
+| Replay prevention   |                     **Yes** | Nonce/status                         |
+| Payment status      |                     **Yes** | Settlement state                     |
+| Hold/freeze         |                     **Yes** | Asset custody/control                |
+| Clearance signature |                     **Yes** | Signature/attestation verification   |
+| Invoice existence   |                  **Hybrid** | On-chain reference, off-chain source |
+| Invoice matching    |               **Off-chain** | ERP/business data                    |
+| KYC                 |               **Off-chain** | Identity/compliance system           |
+| Sanctions screening | **Off-chain + attestation** | External data                        |
+| Fraud/risk scoring  |               **Off-chain** | Complex external computation         |
+| Fiat conversion     |                  **Hybrid** | Requires price oracle                |
+| Notifications       |               **Off-chain** | Operational concern                  |
