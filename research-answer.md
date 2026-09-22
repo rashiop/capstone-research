@@ -2229,3 +2229,646 @@ The dedicated hub concept can remain a **future extension** if later requirement
 * LayerZero V2 Endpoint documentation — message channels, nonces, payload hashes, exactly-once processing, configurable messaging libraries, DVNs, Executors, and finality configuration.
 * LayerZero V2 protocol documentation — message fees and DVN/Executor fee model.
 * Capstone Todo — Hub Chain Architecture research requirements.
+
+# Step 7 — Validate the “Hub Chain” Architecture
+
+## Objective
+
+Determine whether institutional cross-chain payments should use:
+
+1. A **blockchain hub** that becomes the central settlement/routing chain.
+2. **Direct cross-chain routing** between source and destination chains.
+3. A **logical routing layer** that provides a unified interface without introducing another blockchain.
+
+The capstone should not assume that a blockchain hub is necessary simply because cross-chain functionality is required.
+
+## Decision
+**Use direct cross-chain routing through a protocol-independent logical `CrossChainRouter`, with policy enforcement on both source and destination chains.**
+
+The “hub” remains an **application-level/logical concept**, not a blockchain that every transaction must pass through.
+
+---
+
+## 1. Architecture Distinction
+
+There are two different meanings of “hub” that should not be mixed together.
+
+### Blockchain Hub
+
+A real blockchain becomes part of every cross-chain transaction path:
+
+```text
+Source Chain
+     ↓
+Cross-chain messaging
+     ↓
+Hub Chain
+     ↓
+Cross-chain messaging
+     ↓
+Destination Chain
+```
+
+The hub contains blockchain-side policy/state and becomes an infrastructure dependency.
+
+### Logical Hub / Routing Layer
+
+There is no additional blockchain.
+
+The policy engine is deployed on each supported chain:
+
+```text
+                 Institutional Layer
+                  Policy Governance
+                         │
+          ┌──────────────┼──────────────┐
+          ↓              ↓              ↓
+       Chain A         Chain B        Chain C
+       Policy          Policy         Policy
+          │              │              │
+          └────── CrossChainRouter ─────┘
+```
+
+The routing layer provides a common interface for initiating cross-chain operations, while the actual message can travel directly from source to destination.
+
+---
+
+## 2. Why Would We Need a Blockchain Hub?
+
+A blockchain hub could provide:
+
+* centralized policy state
+* centralized transaction coordination
+* a common settlement layer
+* a single location for cross-chain accounting
+* a common routing point
+
+However, these benefits must be weighed against the additional dependency.
+
+Every cross-chain operation would become:
+
+```text
+Chain A
+   ↓
+Hub
+   ↓
+Chain B
+```
+
+rather than:
+
+```text
+Chain A
+   ↓
+Chain B
+```
+
+The hub therefore becomes part of the transaction lifecycle rather than merely an application abstraction.
+
+---
+
+## 3. Can Source → Destination Be Direct?
+
+Yes.
+
+Cross-chain messaging protocols such as **CCIP** and **LayerZero** provide infrastructure for communicating between source and destination chains without requiring the application to create its own intermediary blockchain.
+
+Therefore:
+
+> A blockchain hub is not required merely to obtain cross-chain messaging.
+
+The capstone can use a cross-chain protocol for message transport while keeping policy enforcement within the capstone's smart-contract layer.
+
+---
+
+## 4. What Would the Hub Actually Store?
+
+If a blockchain hub were introduced, it would potentially need to store:
+
+### Policy State
+
+```text
+Institution
+ ├── policies
+ ├── spending limits
+ ├── allowlists
+ └── approvals
+```
+
+### Cross-Chain Transaction State
+
+```text
+CrossChainIntent
+ ├── source
+ ├── destination
+ ├── asset
+ ├── amount
+ ├── recipient
+ ├── nonce
+ └── status
+```
+
+### Settlement State
+
+```text
+Pending
+   ↓
+Authorized
+   ↓
+Sent
+   ↓
+Delivered
+   ↓
+Settled
+```
+
+Much of this state can instead exist at the institutional and chain-specific policy layers.
+
+A hub would therefore introduce another state machine that must remain synchronized with the actual cross-chain transaction.
+
+---
+
+## 5. Where Should Policy Be Enforced?
+
+The key institutional custody requirement is:
+
+> **The destination chain must not blindly execute a cross-chain instruction merely because the source chain authorized it.**
+
+The proposed model is:
+
+```text
+                Source Chain
+                     │
+             Policy Evaluation
+                     │
+                  ALLOW
+                     │
+                     ↓
+             Cross-chain message
+                     │
+                     ↓
+              Destination Chain
+                     │
+             Policy Evaluation
+                     │
+              ┌──────┴──────┐
+              ↓             ↓
+            ALLOW          DENY
+              │
+              ↓
+       Execution Gate
+              │
+              ↓
+          Asset movement
+```
+
+The source policy engine authorizes the intent.
+
+The destination policy engine remains a final enforcement boundary.
+
+This allows destination-side controls such as:
+
+* destination allowlists
+* destination chain restrictions
+* emergency pause
+* message expiry
+* replay protection
+* destination-specific spending limits
+* policy changes that occurred after source authorization
+
+---
+
+## 6. Global Spending Limits
+
+A distributed policy architecture creates an important challenge: **global accounting across chains**.
+
+For example:
+
+```text
+Institution daily limit = $1M
+
+Ethereum → $400K
+Polygon  → $300K
+Base     → $200K
+--------------------
+Total    → $900K
+```
+
+A purely chain-local policy engine could incorrectly allow another $500K transaction.
+
+Therefore, the architecture must distinguish between:
+
+### Chain-Local Limits
+
+```text
+Ethereum daily limit
+Polygon daily limit
+Base daily limit
+```
+
+### Institution-Wide Limits
+
+```text
+Institution
+    ↓
+Global daily limit
+    ↓
+All supported chains
+```
+
+This is one of the strongest arguments for having an institutional coordination layer.
+
+However, it does **not automatically require a blockchain hub**.
+
+Global policy can be coordinated through the institutional layer while enforcement remains distributed across the supported chains.
+
+For the MVP, global cross-chain accounting should be treated explicitly as a distributed-state problem rather than hidden behind a hub.
+
+---
+
+## 7. Blockchain Hub vs Direct Routing
+
+### Blockchain Hub
+
+```text
+              Policy
+                │
+                ↓
+             Hub Chain
+            /         \
+           ↓           ↓
+       Chain A       Chain B
+```
+
+**Advantages**
+
+* centralized policy state
+* centralized cross-chain coordination
+* potentially simpler global accounting
+* one blockchain location for institutional coordination
+
+**Disadvantages**
+
+* additional blockchain dependency
+* every route potentially depends on the hub
+* additional message hop
+* additional gas/message costs
+* additional failure states
+* hub availability becomes relevant
+* hub security becomes part of the system's security model
+* policy execution becomes less chain-local
+* recovery becomes more complicated when hub → destination execution fails
+
+The hub therefore **moves complexity rather than eliminating it**.
+
+---
+
+### Direct Routing
+
+```text
+                 Policy Governance
+                        │
+                        ↓
+                  CrossChainRouter
+                        │
+          ┌─────────────┼─────────────┐
+          ↓             ↓             ↓
+       Chain A  ─────→ Chain B
+          │             │
+       Policy          Policy
+       Engine          Engine
+```
+
+The router does not become the authority over funds.
+
+Instead:
+
+```text
+CrossChainRouter
+       │
+       ↓
+Create / submit message
+       │
+       ↓
+CCIP / LayerZero
+       │
+       ↓
+Destination Policy Engine
+       │
+       ↓
+Execution Gate
+```
+
+The cross-chain protocol is responsible for message transport, while the capstone remains responsible for policy enforcement.
+
+---
+
+## 8. Failure Handling
+
+A blockchain hub does not eliminate cross-chain failures.
+
+For example:
+
+```text
+Source
+  ↓
+Hub
+  ↓
+Destination
+       X execution failed
+```
+
+The system still needs to define:
+
+* message status
+* retry behavior
+* expiry
+* cancellation
+* replay prevention
+* partial execution
+* asset custody during failure
+* recovery procedures
+* reconciliation
+
+With direct routing:
+
+```text
+Source
+  ↓
+Destination
+       X execution failed
+```
+
+There is one less application-controlled state transition.
+
+The cross-chain protocol handles message delivery and verification mechanics, while the destination policy engine determines whether the received instruction can execute.
+
+---
+
+## 9. Gas and Execution
+
+Gas remains chain-specific.
+
+With direct routing:
+
+```text
+Source Chain
+    ↓
+Source transaction / messaging fee
+
+Destination Chain
+    ↓
+Destination execution gas
+```
+
+Destination execution can be handled by the selected cross-chain protocol's execution mechanism.
+
+Gas sponsorship should remain a separate concern from cross-chain architecture and can later be addressed through:
+
+* ERC-4337
+* Paymasters
+* protocol-specific execution services
+* institutional relayers
+
+This keeps:
+
+> **Cross-chain routing**
+
+separate from:
+
+> **Gas abstraction**
+
+---
+
+## 10. Trust and Security Model
+
+A blockchain hub introduces another critical infrastructure component.
+
+The security model becomes:
+
+```text
+Source chain
+     +
+Cross-chain protocol
+     +
+Hub chain
+     +
+Cross-chain protocol
+     +
+Destination chain
+```
+
+With direct routing:
+
+```text
+Source chain
+     +
+Cross-chain protocol
+     +
+Destination chain
+```
+
+The hub may itself be secure, but it still becomes another component whose:
+
+* contracts
+* upgrades
+* policies
+* availability
+* message handling
+* state
+
+must be trusted or verified.
+
+For an institutional custody system, unnecessary trusted components should be avoided where they do not provide sufficient architectural value.
+
+---
+
+## 11. Logical Hub / Common Routing Interface
+
+The capstone should still have a **logical routing abstraction**.
+
+For example:
+
+```solidity
+interface ICrossChainRouter {
+    function send(
+        CrossChainIntent calldata intent
+    ) external returns (bytes32 messageId);
+}
+```
+
+The implementation can use protocol adapters:
+
+```text
+                 CrossChainRouter
+                       │
+              ┌────────┴────────┐
+              ↓                 ↓
+        CCIP Adapter       LayerZero Adapter
+              │                 │
+              ↓                 ↓
+        Cross-chain        Cross-chain
+         protocol           protocol
+```
+
+The policy engine therefore does not need to know which underlying transport protocol is being used.
+
+This provides protocol independence and allows the cross-chain transport layer to evolve independently from the policy engine.
+
+---
+
+## 12. Deployment Model
+
+The preferred architecture is:
+
+```text
+              Institutional Layer
+             Policy Governance/API
+                       │
+          ┌────────────┼────────────┐
+          ↓            ↓            ↓
+       Chain A      Chain B       Chain C
+       Policy       Policy        Policy
+       Engine       Engine        Engine
+          │            │            │
+          └────────────┼────────────┘
+                       ↓
+                CrossChainRouter
+                       │
+              Messaging Protocol
+                       │
+          ┌────────────┼────────────┐
+          ↓            ↓            ↓
+       Chain A      Chain B       Chain C
+```
+
+Each supported chain therefore has a local policy/execution boundary.
+
+Policy configuration can be coordinated from the institutional layer, but the destination chain still performs its own enforcement.
+
+---
+
+## 13. Same Contract Address Across Chains
+
+Using the same address for the policy engine across chains could simplify:
+
+* configuration
+* integrations
+* API routing
+* frontend configuration
+* institutional tooling
+* audit documentation
+
+However, this is a **deployment optimization**, not an architectural requirement.
+
+Deterministic deployment can potentially make addresses consistent across networks, but the security model should not depend on identical addresses.
+
+The important invariant is:
+
+> The correct policy contract is configured, authorized, and verified on each supported chain.
+
+---
+
+# 14. Decision
+
+## Selected Architecture
+
+**Direct Cross-Chain Routing + Logical Routing Layer**
+
+The capstone will **not use a blockchain hub for the MVP**.
+
+Instead:
+
+```text
+Institutional Policy Layer
+          │
+          ↓
+   CrossChainRouter
+          │
+          ↓
+   CCIP / LayerZero
+          │
+          ↓
+Destination Policy Engine
+          │
+          ↓
+     Execution Gate
+```
+
+### Include
+
+* Cross-chain intent model
+* Protocol-independent `CrossChainRouter`
+* Cross-chain protocol adapter
+* Source-chain policy enforcement
+* Destination-chain policy enforcement
+* Destination execution gate
+* Replay protection
+* Message expiry
+* Cross-chain transaction state
+* Audit events
+* Global policy/limit considerations
+* Multi-chain deployment/configuration tooling
+
+### Do Not Include
+
+* Custom bridge
+* Custom validator network
+* Custom message verification system
+* Custom settlement blockchain
+* Mandatory hub chain
+* Custom cross-chain token bridge
+
+---
+
+# 15. Why This Fits the Capstone
+
+The core product is:
+
+> **Institutional policy enforcement for blockchain transactions.**
+
+It is not:
+
+> **A new cross-chain protocol.**
+
+A blockchain hub would introduce substantial additional infrastructure without directly improving the core policy-engine problem.
+
+Direct routing allows the capstone to focus its complexity where it matters:
+
+```text
+Institutional Policy
+        ↓
+Transaction Intent
+        ↓
+Policy Evaluation
+        ↓
+Cross-Chain Authorization
+        ↓
+Message Transport
+        ↓
+Destination Policy Evaluation
+        ↓
+Execution Gate
+        ↓
+Asset Movement
+```
+
+The architectural security boundary becomes:
+
+> **The cross-chain protocol transports the instruction; our policy engine decides whether the instruction is allowed to execute.**
+
+
+| Decision                    | Result                                            |
+| --------------------------- | ------------------------------------------------- |
+| Cross-chain capability      | **Include**                                       |
+| Blockchain hub              | **Do not use for MVP**                            |
+| Direct source → destination | **Use**                                           |
+| Logical routing layer       | **Use**                                           |
+| Policy on source chain      | **Yes**                                           |
+| Policy on destination chain | **Yes**                                           |
+| Custom bridge               | **No**                                            |
+| Custom message verification | **No**                                            |
+| CCIP / LayerZero            | **Protocol adapter**                              |
+| Global policy coordination  | **Institutional layer + distributed enforcement** |
+| Global limits               | **Explicitly design as distributed state**        |
+| Same address across chains  | **Useful deployment goal, not a requirement**     |
