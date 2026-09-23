@@ -2872,3 +2872,393 @@ The architectural security boundary becomes:
 | Global policy coordination  | **Institutional layer + distributed enforcement** |
 | Global limits               | **Explicitly design as distributed state**        |
 | Same address across chains  | **Useful deployment goal, not a requirement**     |
+
+# Step 8 — Research Gasless / Sponsored Transactions
+
+## Objective
+Determine how the capstone can provide **gasless / sponsored transactions** while maintaining institutional custody policies, particularly when executing transactions across multiple chains.
+The goal is to provide a **banking-app-like UX** where users do not need to manage native gas tokens on every supported chain.
+
+Requirements
+1. Separate sponsorship policy, to avoid from accidentally creating an unlimited gas faucet
+2. Auditability
+3. Gasless adapter to avoid vendor locked
+
+#### Importance 
+Without gas abstraction, a user may need to maintain native gas balances on every supported chain. 
+This creates operational friction for institutional users. The transaction is authorized by the institution but cannot execute because the user lacks the destination chain's native gas asset.
+
+The desired architecture is:
+```text
+User
+ ↓
+Transaction Intent
+ ↓
+Policy Validation
+ ↓
+Gas Sponsorship
+ ↓
+Cross-chain / blockchain execution
+```
+
+Therefore:
+> **Gas abstraction is particularly valuable because the capstone is cross-chain.**
+
+### How
+ERC-4337, ERC-7702
+Company sponsored or third party sponsor
+
+#### Separate sponsorship & asset policy
+```text
+SponsorshipPolicy
+ ├── institution
+ ├── account
+ ├── allowedChains
+ ├── allowedOperations
+ ├── maxGasPerTransaction
+ ├── maxGasCost
+ ├── dailyGasBudget
+ ├── monthlyGasBudget
+ ├── validAfter
+ └── validUntil
+
+Example:
+Transaction Policy
+    $500,000 USDC transfer
+    → ALLOW
+
+Sponsorship Policy
+    maximum gas cost = $20
+    → ALLOW
+
+Or:
+Transaction Policy
+    $500,000 USDC transfer
+    → ALLOW
+
+Sponsorship Policy
+    maximum gas cost = $5
+    estimated cost = $12
+    → DENY SPONSORSHIP
+```
+
+The transaction authorization and sponsorship authorization are therefore separate.
+
+
+```text
+                 Transaction Intent
+                        │
+             ┌──────────┴──────────┐
+             ↓                     ↓
+       Asset Policy           Gas Policy
+             │                     │
+       "Can funds move?"      "Will we pay?"
+             │                     │
+             └──────────┬──────────┘
+                        ↓
+                    Execution
+```
+
+Asset Policy examples:
+* transaction limit
+* daily spending limit
+* approved recipient
+* approved asset
+* approved chain
+* approval requirements
+
+Gas Policy examples:
+* maximum gas limit
+* maximum gas cost
+* maximum sponsored transactions
+* daily sponsorship budget
+* approved chains
+* approved accounts
+* approved operations
+
+
+#### ERC-4337 + EIP-7702
+Instead of requiring the user to submit a conventional transaction, the application can create a `UserOperation`.
+
+A Paymaster allows an entity other than the account itself to pay gas.
+
+```text
+                 ┌──────────────┐
+                 │  Paymaster   │
+                 │              │
+                 │ pays gas     │
+                 └──────┬───────┘
+                        │
+UserOperation ──────────┤
+                        ↓
+                    EntryPoint
+                        ↓
+                     Account
+                        ↓
+                   Execution
+```
+These mechanisms can work together
+```text
+                    User
+                     │
+          ┌──────────┴──────────┐
+          ↓                     ↓
+      ERC-4337              EIP-7702
+          │                     │
+          └──────────┬──────────┘
+                     ↓
+              Policy Engine
+                     ↓
+                Authorization
+                     ↓
+                Paymaster
+                     ↓
+                 Execution
+```
+ERC-4337:
+* UserOperations
+* smart accounts
+* bundlers
+* Paymasters
+* gas abstraction
+
+EIP-7702:
+* EOA delegation
+* batched execution
+* delegated account behavior
+* compatibility with existing EOAs
+
+The two standards should have different roles.
+| Capability            | ERC-4337 | EIP-7702                     |
+| --------------------- | -------- | ---------------------------- |
+| Account abstraction   | Core     | Delegation mechanism         |
+| UserOperations        | Yes      | Can participate              |
+| Paymasters            | Yes      | Can be combined              |
+| Bundlers              | Yes      | Can participate through 4337 |
+| EOA delegation        | No       | Yes                          |
+| Batching              | Yes      | Yes                          |
+| Gas sponsorship       | Yes      | Yes                          |
+| Policy engine         | **No**   | **No**                       |
+| Cross-chain messaging | **No**   | **No**                       |
+
+The institutional policy engine remains the application's own layer.
+
+### External Infrastructure
+
+The capstone should **not build its own production bundler network**.
+
+The same applies to production Paymaster infrastructure.
+
+Potential infrastructure providers can be integrated behind an adapter.
+
+Examples include:
+* Biconomy
+* other ERC-4337 bundler providers
+* Paymaster providers
+* institutional relayers
+
+The architecture should therefore be:
+
+```text
+                   Capstone
+                      │
+              Execution Adapter
+                      │
+          ┌───────────┴───────────┐
+          ↓                       ↓
+      ERC-4337                EIP-7702
+          │                       │
+          ↓                       ↓
+   Bundler / Paymaster       Relayer / Sponsor
+          │                       │
+          └───────────┬───────────┘
+                      ↓
+                  Blockchain
+```
+
+The external provider handles infrastructure.
+
+The capstone owns the policy.
+
+### Sponsorship Service Interface
+Conceptually:
+
+```solidity
+interface ISponsorshipPolicy {
+    function validateSponsorship(
+        bytes32 intentHash,
+        address account,
+        uint256 chainId,
+        uint256 maxGasCost
+    ) external view returns (bool);
+}
+```
+
+The exact interface will be determined during implementation.
+
+The important design is that the policy engine can determine:
+
+```text
+Should this transaction be sponsored?
+```
+
+without knowing whether the sponsor is:
+* a custom Paymaster
+* Biconomy
+* another provider
+* an institutional relayer
+
+#### Sponsorship Budget
+
+Institutional sponsorship needs accounting
+```text
+Daily sponsorship budget = $500
+
+Transaction 1 → $10
+Transaction 2 → $15
+Transaction 3 → $8
+...
+Remaining → $467
+```
+
+The policy layer can therefore enforce:
+* per-operation gas ceiling
+* per-account gas ceiling
+* daily gas budget
+* monthly gas budget
+* chain-specific gas budget
+
+The policy evaluation should produce both transaction authorization and sponsorship requirements.
+
+For example:
+```text
+PolicyDecision
+ ├── decision
+ ├── policyId
+ ├── policyVersion
+ ├── intentHash
+ ├── reasonCode
+ ├── requiredApprovals
+ ├── sponsorshipRequired
+ ├── maxGasCost
+ ├── evaluatedAt
+ └── expiresAt
+```
+
+Add more states:
+```text
+ALLOW
+ALLOW_WITH_SPONSORSHIP
+REQUIRE_APPROVAL
+REQUIRE_APPROVAL_WITH_SPONSORSHIP
+DENY
+DENY_SPONSORSHIP
+```
+Separate transaction & sponsorship for clearer
+```text
+TransactionDecision
+      +
+SponsorshipDecision
+```
+
+### MVP architecture
+```text
+                           User
+                            │
+                            ↓
+                    Transaction Intent
+                            │
+                            ↓
+                    Institutional Policy
+                            │
+                    ┌───────┴───────┐
+                    ↓               ↓
+                  DENY            ALLOW
+                                    │
+                                    ↓
+                              Approval Layer
+                                    │
+                                    ↓
+                           Account Authorization
+                                    │
+                   ┌────────────────┴────────────────┐
+                   ↓                                 ↓
+            Local Execution                    CrossChainRouter
+                   │                                 │
+                   │                                 ↓
+                   │                         CCIP / LayerZero
+                   │                                 │
+                   │                                 ↓
+                   │                         Destination Chain
+                   │                                 │
+                   │                         Destination Policy
+                   │                                 │
+                   └───────────────┬─────────────────┘
+                                   ↓
+                           Execution Adapter
+                                   │
+                              ERC-4337
+                                   │
+                            UserOperation
+                                   │
+                              Paymaster
+                                   │
+                               Bundler
+                                   │
+                               EntryPoint
+                                   │
+                              Smart Account
+                                   │
+                              Blockchain
+```
+
+> **Cross-chain execution creates a multi-chain gas-management problem, and gas abstraction is necessary to provide a credible institutional transaction experience across supported chains.**
+
+ERC-4337 is the primary standard for the gas-abstraction architecture because it provides UserOperations, Paymasters, Bundlers, and EntryPoint-based execution, and explicitly supports sponsored and cross-chain gas-payment use cases.
+
+EIP-7702 remains an important compatible execution/delegation mechanism but does not replace ERC-4337's Paymaster/Bundler architecture.
+
+| Decision                          | Result                                   |
+| --------------------------------- | ---------------------------------------- |
+| Gasless / sponsored transactions  | **MVP**                                  |
+| ERC-4337                          | **Use**                                  |
+| UserOperations                    | **Use**                                  |
+| Paymaster                         | **Use**                                  |
+| Bundler                           | **External infrastructure**              |
+| EntryPoint                        | **Use standard implementation**          |
+| EIP-7702                          | **Compatible / optional execution path** |
+| Biconomy                          | **Optional infrastructure provider**     |
+| Custom Bundler                    | **No**                                   |
+| Custom Paymaster network          | **No**                                   |
+| Sponsorship policy                | **Use**                                  |
+| Gas limits                        | **Use**                                  |
+| Sponsorship budget                | **Use**                                  |
+| Cross-chain gas abstraction       | **MVP concern**                          |
+| Custom bridge                     | **No**                                   |
+| Policy bypass through sponsorship | **Never allowed**                        |
+| Destination policy enforcement    | **Required**                             |
+
+The core separation remains:
+```text
+Policy Engine
+→ Is the transaction allowed?
+
+Account / Authorization
+→ Who is allowed to execute it?
+
+CrossChainRouter
+→ How does the instruction reach another chain?
+
+Paymaster
+→ Who pays the gas?
+
+Bundler / Executor
+→ How is the operation submitted?
+
+Destination Policy
+→ Can the destination execution proceed?
+```
+
+### Key Principle
+
+> **The institution authorizes the transaction; the sponsorship layer pays for execution; the cross-chain protocol transports the instruction; and the destination policy engine remains the final enforcement boundary.**
