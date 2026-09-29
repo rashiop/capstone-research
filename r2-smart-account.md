@@ -1,6 +1,6 @@
 # R2 — Smart Account Base ("custodian stand-in")
 
-_Step 3 research, Wave 1. Researched 2026-09-23 (v2: per-option detail; v3 2026-09-24: Safe integration notes, ERC-7579 draft status, on-chain rule privacy, inputs to R3). Method: `02a-research-method.md` (gates + D7 weights). Confidence: **V** Verified in primary source · **L** Likely · **U** Unverified._
+_Step 3 research, Wave 1. Researched 2026-09-23 (v2: per-option detail; v3 2026-09-24: Safe integration notes, ERC-7579 draft status, on-chain rule privacy, inputs to R3; **v4 2026-09-29: Safe7579 audit fix status verified from the full Ackee report — critical finding FIXED; option B maturity score 3 → 4**). Method: `02a-research-method.md` (gates + D7 weights). Confidence: **V** Verified in primary source · **L** Likely · **U** Unverified. **Decision: approved → D9.**_
 
 ## 1. Decision & requirements served
 - **Decision:** which wallet our policy layer attaches to, and **where** the policy code plugs in. One-way door: hard to change after we build on it.
@@ -75,12 +75,15 @@ Both call one **PolicyEngine** holding the rules.
 - **Deployment must go through the Launchpad** to get matching 4337 addresses. **V** More complex scripts, harder multichain deploys.
 - **Tooling:** Rhinestone ModuleKit (Foundry-based) helps, but it's another toolkit to learn.
 
-**Known issues & known fixes**
+**Known issues & known fixes** (verified 2026-09-29 from the full Ackee report in the repo's `audits/` folder)
 
 | Issue | Status / fix |
 |---|---|
-| Ackee audit (June–July 2024): **1 critical, 2 high, 5 medium**. The critical: an attacker can **front-run the Safe deployment via the Launchpad and take over the wallet**. The high included front-running `initializeAccount`. Code quality rated "average" (unresolved TODOs, incomplete docs). **V** | Ackee recommended fixing it immediately and protecting init functions. Fix status isn't stated on the README page we could read. **U → would need checking in the repo's audits folder before use.** |
-| New tech = fewer battle-tested deployments. **L** | Mitigation: use only audited Rhinestone modules and pin versions. |
+| **C1 (Critical) — "ERC-4337 counterfactual address can be stolen"** in `Safe7579Launchpad`. In 4337, a wallet's address is known *before* it's deployed ("counterfactual"), and users often pre-fund it or grant it permissions. `preValidationSetup` had **no "already initialized" check** and could run a `delegatecall` to any contract. **Attack:** watch the 4337 mempool for a new Safe7579 creation → replay the same deployment data by calling the helper (`SenderCreator`) directly, bypassing the EntryPoint → the proxy lands at the victim's address → call `preValidationSetup` with a malicious `delegatecall` → set yourself as owner. The victim's pre-funded ETH and any permissions granted to that address are taken over. **V** | **Fixed** in revision 1.1 (report dated **2024-07-05**, fix-review commit `180f0ac`): the function now reverts with `Safe7579LaunchpadAlreadyInitialized()` if an init hash is already stored. **V** |
+| **H1 (High)** — `initializeAccount` could be front-run | **Fixed** (added `onlyEntryPointOrSelf`) **V** |
+| **H2 (High)** — executors unusable (wrong `msg.sender` context in `withRegistry`) | **Fixed** (uses `_msgSender()`) **V** |
+| Overall | Of 24 findings: **20 fixed, 3 acknowledged** (incl. L3 "ERC-4337 factory standard violation"), **1 not fixed** (W7, an incomplete unused helper); **M5 "Locked Ether" only partially fixed**. The fix review covered **only the remediations**; other code changes after that commit **weren't audited**. **V** |
+| New tech = fewer battle-tested deployments. **L** | Mitigation: pin a release at/after the fixed commit; check for newer audits; use only audited Rhinestone modules. |
 
 ---
 
@@ -171,7 +174,7 @@ Added in **OZ v5.4.0 (2025-07-17)**. The latest is v5.6.1 (2026-02-27). **V**
 | Option | Sepolia + Base Sepolia | No business account | Foundry + viem | Maintained / audited | Permissive license | Solo-buildable (M13–16) | Result |
 |---|---|---|---|---|---|---|---|
 | A. Safe v1.5 + Guard/Module | ✅ L | ✅ | ✅ | ✅ Certora, Ackee | ✅ LGPL | ✅ | **Pass** |
-| B. Safe + Safe7579 Hook | ✅ L | ✅ | ✅ ModuleKit | ⚠️ audited, critical fix unconfirmed | ✅ | ✅ | Pass (flag) |
+| B. Safe + Safe7579 Hook | ✅ L | ✅ | ✅ ModuleKit | ✅ Ackee audited; critical + highs fixed (v4) | ✅ | ✅ | Pass |
 | C. OZ custom account | ✅ we deploy | ✅ | ✅ | ✅ L | ✅ MIT | ✅ | Pass |
 | D. Zodiac Roles as base | ✅ | ✅ | ✅ | ✅ G0, Omniscia | ✅ LGPL | ✅ | Pass (reference only, see D) |
 | E. Custom vault | ✅ | ✅ | ✅ | n/a | ✅ | ✅ | Pass |
@@ -185,12 +188,12 @@ Added in **OZ v5.4.0 (2025-07-17)**. The latest is v5.6.1 (2026-02-27). **V**
 | Institutional alignment (20) | **5** | 4 | 2 | 4 | 1 |
 | Grading coverage (15) | 4 | 4 | **5** | 2 — little own code | 4 |
 | Portfolio & learning (12) | 4 | **5** | 4 | 2 | 3 |
-| Maturity & security (10) | **5** | 3 | 3 | **5** | 2 |
+| Maturity & security (10) | **5** | **4** (v4, was 3: audit fixes verified; still newer + less used) | 3 | **5** | 2 |
 | Testnet & tooling (10) | 4 | 4 | 4 | 4 | **5** |
 | Solo effort & risk (8) | 4 | 3 | 3 | 4 | **5** |
-| **Weighted total (/5)** | **4.30** | 3.94 | 3.57 | 3.06 | 3.01 |
+| **Weighted total (/5)** | **4.30** | **4.04** (v4, was 3.94) | 3.57 | 3.06 | 3.01 |
 
-**Sensitivity check:** swapping Institutional (20→12) and Portfolio (12→20) gives A 4.22 vs B 4.02. A still wins, so the ranking is robust.
+**Sensitivity check:** swapping Institutional (20→12) and Portfolio (12→20) gives A 4.22 vs B 4.12. A still wins, but the gap is narrower after v4.
 
 ---
 
@@ -214,21 +217,21 @@ Custodian MPC key(s) / approvers ──► Safe v1.5 (owners, threshold)
 ### Reasoning
 1. **It matches the brief.** The instructor asked for a policy layer on top of existing custody, not a new wallet. Safe is the existing custody wallet institutions use, and R1 showed custodians connect to it as signers. A scores 5/5 on your highest non-fit weight (institutional, 20%). C and E lose most of those points.
 2. **It covers every path.** Since v1.5, owner-signed *and* module transactions both hit our guard. That's what makes the "backstop that can't be bypassed" pitch true. B also covers this, but with more layers. D only covers the module path.
-3. **Lowest security risk for a solo build.** Safe's core is audited and battle-tested. Our risk is limited to our own guard, module and engine, and the biggest one (guard bricking) has a known, testable fix. B has an unconfirmed critical-finding fix. C and E make you responsible for the whole wallet.
+3. **Lowest security risk for a solo build.** Safe's core is audited and battle-tested. Our risk is limited to our own guard, module and engine, and the biggest one (guard bricking) has a known, testable fix. B's audit issues are fixed (v4), but it adds a younger, less-used layer, and code changed after the fix review wasn't re-audited. C and E make you responsible for the whole wallet.
 4. **It keeps grading and portfolio strong anyway.** All the graded work (OZ libraries, access control, reentrancy, pull payments, oracle pricing, Echidna invariants) sits in *our* contracts, not Safe's. Portfolio story: "I built a guard + module + policy engine that would have stopped the Bybit attack."
 5. **We keep B's upside as a roadmap item.** PolicyEngine has no Safe-specific code (§7.3). Later, a thin ERC-7579 hook wrapper makes it portable. Pitch line: *"Built on Safe today; the policy engine is ERC-7579-ready."*
 6. **Robust to your weights.** It wins under the sensitivity check, and the runner-up (B) shares most of the design, so switching later is cheap.
 
 ### Conditions / what would change the recommendation
-- **The instructor explicitly prefers ERC-7579** → switch to B. PolicyEngine and PaymentModule carry over; only PolicyGuard becomes a 7579 hook. Before that, confirm the Launchpad critical fix.
+- **The instructor explicitly prefers ERC-7579** → switch to B. PolicyEngine and PaymentModule carry over; only PolicyGuard becomes a 7579 hook. Pin a Safe7579 release at/after the fixed commit and check for newer audits.
 - **Safe v1.5 isn't deployed on Base Sepolia** → deploy it ourselves from the official repo (it's permissionless), or use v1.4.1 with a transaction guard and have PaymentModule call PolicyEngine directly.
-- **R6 finds no bundler/paymaster supporting Safe4337Module's EntryPoint version** → gas sponsorship moves to "Should" via a simple relayer (EIP-712 meta-transactions, M12) instead of 4337.
+- **R6 finds no bundler/paymaster supporting Safe4337Module's EntryPoint version** → gas sponsorship via our own relayer (D18) instead of 4337.
 - **Stretch goal (dev phase, only if ahead of schedule):** build the ERC-7579 hook wrapper and demo PolicyEngine on a second account type.
 
 ---
 
 ## 6. Status
-**Recommended, awaiting Pops' approval.** When approved, it replaces D4 in `00-decisions-log.md`.
+**Approved → D9** (2026-09-25). v4 correction (2026-09-29) doesn't change the decision.
 
 ---
 
@@ -266,7 +269,7 @@ Custodian MPC key(s) / approvers ──► Safe v1.5 (owners, threshold)
 **The same payment can take several "shapes"; the guard must understand each one**
 - **ETH transfer:** the amount is in `value`.
 - **ERC-20 transfer:** a call to the token contract; the recipient and amount are inside `data`. Decode `transfer`, `transferFrom`, `approve` (and block or cap unlimited `approve`).
-- **Batches:** Safe's MultiSend runs as a `delegatecall`. The guard sees one call to MultiSend unless it unpacks the batch. **Decision for R3:** decode MultiSend batches and check each inner call, or block batching in v1.
+- **Batches:** Safe's MultiSend runs as a `delegatecall`. The guard sees one call to MultiSend unless it unpacks the batch. **Decision (R3):** block batching in v1; decoding is a Could.
 - **Self-calls** (`to == safe`: add owner, change threshold, remove guard, enable module) → only via the time-locked admin path.
 - **Unknown contract calls** → deny by default (allowlist of contracts + function selectors).
 
@@ -327,7 +330,7 @@ Intent { initiator, chainId, calls[]: (target, value, data) }
 | Mitigation | What it does | MVP? |
 |---|---|---|
 | **Coarse on-chain caps** | On-chain limits set well above normal operations as a disaster backstop; tight, detailed rules stay in the custodian's private off-chain engine | Must |
-| **Salted Merkle-root allowlist** | Store only a Merkle root of the allowlist; an address is revealed only when used (with a Merkle proof). The salt stops attackers hashing known addresses (e.g., exchanges) to test membership | Should (plain mapping is simpler; decide in R3) |
+| **Salted Merkle-root allowlist** | Store only a Merkle root of the allowlist; an address is revealed only when used (with a Merkle proof). The salt stops attackers hashing known addresses (e.g., exchanges) to test membership | Should |
 | **Velocity alerts (backend)** | Warn when spend approaches a cap; addresses "drain just under the limit" | Should (fits D6 backend) |
 | **Address-poisoning defence** | Exact-match allowlist (never "similar" addresses); UI shows full address + label from the allowlist | Must (UI + contract) |
 | **Privacy roadmap** | Privacy L2 / ZK proofs of policy compliance | Roadmap only |
@@ -338,10 +341,10 @@ Intent { initiator, chainId, calls[]: (target, value, data) }
 1. PolicyEngine takes a normalized `Intent { initiator, chainId, calls[] }`; adapters (PolicyGuard now, 7579 hook later) do the decoding.
 2. Only the guard path records spend; module pre-checks are read-only (no double-counting).
 3. Decode ETH value, ERC-20 `transfer` / `transferFrom` / `approve`; deny unknown selectors by default.
-4. MultiSend: decode and check each inner call, or block batching in v1 (decide in R3).
+4. MultiSend: block batching in v1 (decoding = Could).
 5. Self-calls (owner/threshold/guard/module changes) only via the time-locked admin path; the guard must always allow its own removal after the delay (anti-bricking).
 6. Block `delegatecall` except to allowlisted targets (Bybit lesson).
-7. Privacy: coarse caps; choose plain mapping vs. salted Merkle-root allowlist; velocity alerts in the backend.
+7. Privacy: coarse caps; plain mapping now, salted Merkle-root allowlist as a Should; velocity alerts in the backend.
 8. Gas: O(1) checks on every transaction.
 
 ## 10. Sources
@@ -352,6 +355,7 @@ Intent { initiator, chainId, calls[]: (target, value, data) }
 - Safe 4337 permissionless guide (EntryPoint v0.6 / module v0.2.0): https://docs.safe.global/advanced/erc-4337/guides/permissionless-detailed
 - Safe + ERC-7579: https://docs.safe.global/advanced/erc-7579/7579-safe
 - Safe7579 repo: https://github.com/rhinestonewtf/safe7579
+- **Ackee full audit report (Safe7579, rev 1.1, 2024-07-05):** https://github.com/rhinestonewtf/safe7579/blob/main/audits/ackee-blockchain-rhinestone-safe7579-report.pdf
 - Ackee audit summary (Safe7579): https://ackee.xyz/blog/rhinestone-erc-7579-safe-adapter-audit-summary/
 - OpenZeppelin Smart Accounts: https://docs.openzeppelin.com/contracts/5.x/accounts
 - OpenZeppelin changelog (v5.4.0, v5.5.0, draft- warning): https://docs.openzeppelin.com/contracts/5.x/changelog
