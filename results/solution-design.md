@@ -171,6 +171,34 @@ stateDiagram-v2
 
 _(Faucet limits: 20 USDC / 2h / chain → demo amounts 1–20 USDC; the limits above are scaled so the thresholds can be crossed in a demo using WETH or CCIP-BnM.)_
 
+### 1.10 Units & precision (cents and decimals)
+No floating point anywhere, on-chain or off-chain. All money values are **integers in a fixed smallest unit**.
+
+| Value | Unit on-chain | Example |
+|---|---|---|
+| **USD amounts** (limits, buckets, hard cap, verdict `usdValue`) | **usd18**: USD × 10¹⁸ | $1,234.56 = `1234560000000000000000`; 1 cent = `1e16` |
+| **Token amounts** (invoices, escrow entries, transfers) | The token's own decimals | USDC (6): 12.34 USDC = `12340000`; WETH (18) |
+| **Chainlink prices** | The feed's decimals (usually 8 for USD pairs) | ETH/USD $2,690.12 = `269012000000` |
+| **Bucket refill rate** | usd18 per second | $5,000/day ≈ `57870370370370370` usd18/s |
+
+**Conversion (token → USD):** `usd18 = mulDiv(amount × price, 10¹⁸, 10^(tokenDecimals + feedDecimals), Rounding.Ceil)` with OpenZeppelin `Math.mulDiv` (no overflow, full precision). Apply the stablecoin floor on `price` first (`max(price, 1 × 10^feedDecimals)`).
+
+**Rounding rules (always against the spender):**
+- USD value of a payment → round **up**, so a limit can never be beaten by splitting into tiny amounts.
+- Bucket refill → round **down**.
+- Refunds of reserved spend (failed inner call) → the exact reserved amount.
+- Sub-cent dust: 0.000001 USDC is valued at ≥ 1 wei of usd18. Harmless, and it still counts.
+
+**Invoices are denominated in a token** (e.g., "20.00 USDC"), so cents are exact through the token's decimals. USD-denominated invoices paid in a volatile token (e.g., "$20 paid in ETH") are **out of scope for the MVP** (they need a quote/slippage window); roadmap.
+
+**Off-chain:**
+- **Go:** `*big.Int` (or `github.com/shopspring/decimal` for display maths).
+- **Postgres:** `NUMERIC(78,0)` for raw integer amounts + a `decimals` column.
+- **TypeScript:** viem `bigint` + `formatUnits` / `parseUnits`.
+- **UI:** shows 2 decimals for USD and the token's natural precision for tokens, and never rounds a limit *up* in display.
+
+**Tests:** fuzz conversion across decimals 6/8/18; property "USD value is monotonic in amount"; property "sum of split payments ≥ value of the single payment" (no rounding exploit).
+
 ---
 
 ## 2. Key sequences
