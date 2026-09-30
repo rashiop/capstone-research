@@ -1,6 +1,6 @@
 # R1 — Institutional Custody Landscape
 
-_Step 3 research, Wave 1. Researched 2026-09-23. Method: `02a-research-method.md`. Confidence tags: **V** = Verified in primary source, **L** = Likely (secondary source), **U** = Unverified._
+_Step 3 research, Wave 1. Researched 2026-09-23; corrected 2026-09-30 after the pitch fact-check (`03-R1b-pitch-factcheck.md`). Method: `02a-research-method.md`. Confidence tags: **V** = Verified in primary source, **L** = Likely (secondary source), **U** = Unverified._
 
 ## 1. Decision & requirements served
 - **Decisions it unblocks:** (a) which policy primitives v1 must support, (b) what our on-chain layer does vs. what stays with the custodian off-chain, (c) the pitch's "why on-chain?" answer.
@@ -14,10 +14,10 @@ _Step 3 research, Wave 1. Researched 2026-09-23. Method: `02a-research-method.md
 | | Fireblocks | BitGo | Coinbase Prime (Onchain Wallet) |
 |---|---|---|---|
 | Key tech | MPC | Multi-key (user/backup/BitGo); MPC options | MPC, key "born split 2-of-2" between Coinbase and user devices |
-| Where the policy runs | Off-chain policy engine (TAP) | Off-chain, BitGo-side | Off-chain policy engine |
+| Where the policy runs | Off-chain policy engine (TAP), in secure enclaves; rules signed by an admin quorum | Off-chain, BitGo-side | Off-chain policy engine |
 | Rule shape | Ordered rules, **first match wins** | Typed rules: Destination, Initiator, % of wallet balance, Threshold, Velocity limit, Webhook | Rules on source, destination, initiator → block or require approval |
 | Outcomes | `ALLOW`, `BLOCK`, `2-TIER` (needs approval) | Approve / deny / require extra approval | Block / require approval |
-| Amount limits | `amount` + `amountCurrency` (USD/EUR/native) + `amountScope` (`SINGLE_TX` or `TIMEFRAME`) + `periodSec` | Threshold + Velocity limit | Not mentioned in docs |
+| Amount limits | `amount` + `amountCurrency` (USD/EUR/native) + `amountScope` (`SINGLE_TX` or `TIMEFRAME`) + `periodSec`; `asset: "*"` = all assets (so a USD cap can span assets and chains, **L**) | Threshold + Velocity limit; enterprise-wide cumulative checks (e.g., video ID above $250k/day across all wallets and coins, **V**) | Not mentioned in docs |
 | Allowlist | `src`/`dst` account filters; whitelisted addresses | Wallet whitelists | "Onchain Trusted Address Book", **on by default** |
 | Who can initiate | `operators` (users / groups) | Initiator rules | Initiator rules |
 | Approvers | `authorizationGroups` with threshold `th`; `designatedSigners` | Second approval | Custom approval controls |
@@ -28,7 +28,7 @@ _Step 3 research, Wave 1. Researched 2026-09-23. Method: `02a-research-method.md
 Common to all three, plus Fireblocks' own design guide (V):
 1. **Allowlist / address book** of approved destinations (default-deny for unknown addresses)
 2. **Per-transaction threshold** (amount per transaction)
-3. **Velocity limit** (total over a time window), per asset, **priced in USD**
+3. **Velocity limit** (total over a time window), **priced in USD**; can be per asset or across all assets (Fireblocks `asset: "*"`, BitGo enterprise-level rules)
 4. **Initiator control:** who may start which transaction type
 5. **Tiered approvals by amount:** e.g., above X needs a group approval with quorum N
 6. **Transaction-type rules:** transfer vs. contract call vs. token approve vs. signing a message
@@ -39,11 +39,12 @@ Common to all three, plus Fireblocks' own design guide (V):
 ### 2.3 On-chain vs. off-chain: the honest trade-off
 - **Fireblocks' position (V):** keep security policy **off-chain**. Their reasons: on-chain rules broadcast your internal security logic publicly, and institutions run "dozens and even hundreds of rules" versus "simplistic on-chain spending limits". They pair MPC with EIP-7702 and put UX features on-chain (batching, gas sponsorship, session keys).
 - **Weakness of off-chain-only policy (V):**
-  - BitGo docs: *"Recovery transactions that use the user key and the backup key bypass any policies you may have in place with BitGo."* An off-chain policy only binds transactions that go through the provider.
+  - An off-chain policy only binds transactions that go through the provider. Each provider has a disaster-recovery exit that signs outside it: BitGo docs: *"Recovery transactions that use the user key and the backup key bypass any policies you may have in place with BitGo."*; Fireblocks' recovery tool rebuilds workspace keys and sends transactions from recovered wallets; Coinbase Prime key export lets you "transact without Coinbase". These are deliberate emergency paths, and normal-operation bypass is hard (Fireblocks enforces in enclaves on every route).
   - **Bybit, Feb 2025, ~$1.5B stolen:** attackers compromised the Safe web frontend. Signers blind-signed a transaction that `delegatecall`ed a malicious implementation and took over the vault. The multisig (n-of-m) worked as designed. The missing layer was an **on-chain guard** that would have rejected the `delegatecall` no matter what the signers signed.
+- **Cross-chain caps (corrected 2026-09-30):** custodians *can* cap USD value across assets and chains, but only for transactions they sign. On-chain rules (Safe guards, Zodiac Roles) keep separate state per chain with no shared cap, and bridge rate limits are per lane and token, not per treasury.
 - **Our position (for the pitch):** use **both layers, each doing what it's good at**.
   - The custodian's off-chain engine stays the first line: rich rules, private logic, MPC key security.
-  - Our on-chain layer is the **backstop**: a small set of hard rules that no key, UI or provider compromise can bypass. It also covers what off-chain engines can't see: **receiving-side** checks, **cross-chain** consistency, and **public verifiability** for auditors and counterparties.
+  - Our on-chain layer is the **backstop**: a small set of hard rules that no key, UI or provider compromise can bypass. It also covers what off-chain engines can't see: **receiving-side** checks, **one on-chain cap across chains** (hub-enforced, including bridge lanes), and **public verifiability** for auditors and counterparties.
   - Keep on-chain rules few and coarse (hard caps, allowlists, forbidden call types) so we don't leak detailed internal logic.
 
 ### 2.4 Existing on-chain precedent
@@ -81,7 +82,7 @@ Common to all three, plus Fireblocks' own design guide (V):
 | Hard caps, allowlist, forbidden call types | optional | ✅ backstop | — |
 | Approval quorum above threshold | ✅ | ✅ (EIP-712 approvals) | collects signatures |
 | Receiving-side clearance (invoice, sender allowlist) | ❌ not covered by custodians | ✅ | invoice data, Functions source |
-| Cross-chain policy consistency | ❌ | ✅ | message tracking |
+| Cap across chains | ✅ for transactions they sign (Fireblocks `asset:"*"` **L**, BitGo enterprise rules **V**) | ✅ on-chain, hub-enforced, incl. bridge lanes | message tracking |
 | Audit trail | internal logs | ✅ events (public) | indexer |
 | Agent (MCP) proposals | — | ✅ enforced like any initiator | ✅ queue |
 
@@ -92,15 +93,19 @@ Common to all three, plus Fireblocks' own design guide (V):
 - **"Receiving side isn't covered by custodians":** inferred from the absence of inbound rules in all three docs. Treat as **L**. The pitch should say "not their focus", not "impossible".
 
 ## 5. Pitch one-liner
-> Custodians protect the **keys**. We protect the **transactions**: an on-chain backstop that enforces the rules even when a key, a UI or a provider is compromised. It extends to incoming payments and to other chains, which custodians' policy engines don't cover.
+> Custodians protect the **keys**. We protect the **transactions**: an on-chain backstop that enforces the rules even when a key, a UI or a provider is compromised. It extends to incoming payments and gives one on-chain cap across chains, which custodians' policy engines don't cover on-chain.
 
 ## 6. Sources
 - Fireblocks — Configure Policies (TAP rule fields): https://developers.fireblocks.com/reference/configure-transaction-authorization-policy
 - Fireblocks — How to design a transaction policy: https://www.fireblocks.com/blog/designing-a-digital-asset-or-crypto-transaction-policy
 - Fireblocks — Mutualism, MPC and EIP-7702: https://www.fireblocks.com/blog/mutualism-mpc-and-eip-7702
+- Fireblocks — Policy engine comparison: https://www.fireblocks.com/report/compare-transaction-policy-engine
+- Fireblocks — Recovery tool: https://github.com/fireblocks/recovery
 - BitGo — Policies Overview: https://developers.bitgo.com/guides/policy-builder/overview
+- BitGo — BitGo-enforced policy rules: https://support.bitgo.com/support/solutions/articles/158000445960-understanding-your-bitgo-enforced-policy-rules
 - BitGo — Whitelists: https://developers.bitgo.com/docs/wallets-whitelists-update
 - Coinbase — How to secure your Onchain Wallet (Prime): https://help.coinbase.com/en/prime/onchain-wallet/how-to-secure-your-onchain-wallet
+- Coinbase — Prime Onchain Wallet key export: https://help.coinbase.com/en/prime/onchain-wallet/key-export
 - Cobo Argus — Developer intro: https://www.cobo.com/developers/v1/overview/smart-contract-wallet/coboargus
 - Cobo Argus × Chainlink: https://www.cobo.com/post/cobo-chainlink-integration
 - Ackee — A Safe-native solution to the Bybit hack: https://ackee.xyz/blog/a-safe-native-solution-to-the-bybit-hack/
