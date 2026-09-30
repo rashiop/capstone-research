@@ -1,368 +1,173 @@
-# R2 — Smart Account Base ("custodian stand-in")
-
-_Step 3 research, Wave 1. Researched 2026-09-23 (v2: per-option detail; v3 2026-09-24: Safe integration notes, ERC-7579 draft status, on-chain rule privacy, inputs to R3; **v4 2026-09-29: Safe7579 audit fix status verified from the full Ackee report — critical finding FIXED; option B maturity score 3 → 4**). Method: `02a-research-method.md` (gates + D7 weights). Confidence: **V** Verified in primary source · **L** Likely · **U** Unverified. **Decision: approved → D9.**_
-
-## 1. Decision & requirements served
-- **Decision:** which wallet our policy layer attaches to, and **where** the policy code plugs in. One-way door: hard to change after we build on it.
-- **Serves:** F1 (spend rules), F4 (works with a custodian), F7 (gas sponsorship / 4337), F8 (agent proposals), and rule types P1–P7 from R1.
-
-### Terms used below
-- **Smart account:** a wallet that is a smart contract, so it can have rules, multiple owners, plug-ins, etc.
-- **Guard:** a contract the wallet calls *before* (and after) each transaction. It can say "no" and stop it.
-- **Module:** a plug-in contract allowed to make the wallet send transactions without the usual owner signatures.
-- **Hook** (ERC-7579 term): the same idea as a guard, but in a standard plug-in format that works across many wallet brands.
-- **ERC-7579:** a standard for "modular" smart accounts. Write a plug-in once, install it on any compliant wallet.
-- **EntryPoint:** the shared ERC-4337 contract that processes gasless "user operations". It has versions (v0.6, v0.7, v0.8, v0.9), and wallets, bundlers and paymasters must agree on the version.
-
----
-
-## 2. Options in detail
-
-### Option A — Safe v1.5 + our Guard + Module Guard + our Module
-
-**What it is.** Use the standard Safe multisig. We write:
-- a **PolicyGuard** that Safe calls on every transaction (`checkTransaction` / `checkAfterExecution` for owner-signed transactions, `checkModuleTransaction` for module transactions),
-- a **PaymentModule** where operators and the MCP agent propose payments and approvers sign.
-
-Both call one **PolicyEngine** holding the rules.
-
-**Pros**
-- **Most-used institutional smart wallet.** Cobo Argus (R1) builds its institutional product on Safe. Reviewers will recognise it instantly.
-- **Every path is guarded since v1.5.0** (released 2025-07-22): the new *Module Guard* checks module-initiated transactions too. Reviewed by Certora and Ackee. **V**
-- **Strong real-world story:** Bybit's $1.5B loss was a Safe without a restrictive guard (R1; see §7.4). We show the fix.
-- **Custodian fit:** a custodian's MPC key is just a Safe owner. No integration needed.
-- **4337 available** via `Safe4337Module` (Safe v1.4.1+). **V**
-- Our code is **ordinary Solidity contracts** (guard, module, engine), so graded items (OZ, access control, reentrancy, tests) all live in our code.
-
-**Cons** (details in §7)
-- **Safe's own contracts are large and older-style.** You integrate with them, you don't read all of them. → §7.1
-- **Two code paths** (owner-signed vs. module) must both be tested. → §7.2
-- ERC-7579 plug-in portability isn't native. → §7.3
-
-**Limitations / considerations**
-- **The guard runs on every transaction**, so the rules must be cheap (constant-time lookups, no loops over lists). R3 designs this.
-- **Rules are public on-chain** (R1 trade-off). Keep on-chain rules coarse. → §8
-- **Safe v1.5 addresses on Base Sepolia** should be confirmed at build time. **L**
-- **The Safe4337Module / EntryPoint version** pairing with bundler providers is checked in R6. Older Safe guides use EntryPoint v0.6 + module v0.2.0. **V** Newer versions are expected to support v0.7+. **L**
-
-**Known issues & known fixes**
-
-| Issue | Status / fix |
-|---|---|
-| **Guard can lock (brick) the Safe.** Safe docs: "a broken Guard can cause a denial of service for a Safe." The guard also checks the transaction that would remove it, so a guard that rejects everything can never be removed. **V** | **Our fix:** the guard always allows the owner-quorum call to `setGuard` / `setModuleGuard` after a **time-lock** delay; a minimal-checks emergency mode; an invariant test that "owners can always remove the guard after the delay". Safe also recommends auditing the guard and planning recovery. **V** |
-| **Before v1.5, modules bypassed guards.** Guards only covered owner-signed `execTransaction`. **V** | **Fixed in v1.5.0** by Module Guard. We require v1.5. If it's unavailable on a testnet, PaymentModule calls PolicyEngine itself as a fallback. |
-| **Bybit-style attack** (malicious UI tricks signers into a `delegatecall` that replaces the wallet's code). **V** | **Our fix:** the guard blocks `delegatecall` except to allowlisted contracts (e.g., Safe's MultiSend), and blocks changes to the Safe's own settings except via the time-locked path. This is ScopeGuard's approach. **V** |
-| `setGuard` requires the guard to declare the right interface (ERC-165). **L** | Implement `supportsInterface` correctly; covered by a unit test. |
-
----
-
-### Option B — Safe + Safe7579 adapter + our ERC-7579 Hook
-
-**What it is.** Keep Safe, but install Rhinestone's **Safe7579 adapter**, which makes Safe accept ERC-7579 plug-ins. Our PolicyEngine becomes an **ERC-7579 hook module**. It's deployed through the adapter's "Launchpad" factory.
-
-**Pros**
-- **Portable:** the same hook works on other 7579 wallets (Kernel/ZeroDev, Biconomy Nexus, OZ accounts). Strong portfolio signal: ERC-7579 is the current direction of smart accounts.
-- **Built-in 4337 compliance**, plus access to Rhinestone's audited module library (14 modules: social recovery, dead-man switch, etc.). **V**
-- Still Safe underneath, so institutions still recognise it.
-
-**Cons**
-- **An extra layer** (adapter + launchpad) between you and Safe: more moving parts to understand, debug and test.
-- **Smaller adoption** than plain Safe; fewer examples. The GitHub repo is modest (~50 stars). **V**
-- **The hook API differs** from Safe's guard. Learning cost for a solo builder in a short window.
-- **ERC-7579 is still a Draft standard** (§7.5).
-
-**Limitations / considerations**
-- **Deployment must go through the Launchpad** to get matching 4337 addresses. **V** More complex scripts, harder multichain deploys.
-- **Tooling:** Rhinestone ModuleKit (Foundry-based) helps, but it's another toolkit to learn.
-
-**Known issues & known fixes** (verified 2026-09-29 from the full Ackee report in the repo's `audits/` folder)
-
-| Issue | Status / fix |
-|---|---|
-| **C1 (Critical) — "ERC-4337 counterfactual address can be stolen"** in `Safe7579Launchpad`. In 4337, a wallet's address is known *before* it's deployed ("counterfactual"), and users often pre-fund it or grant it permissions. `preValidationSetup` had **no "already initialized" check** and could run a `delegatecall` to any contract. **Attack:** watch the 4337 mempool for a new Safe7579 creation → replay the same deployment data by calling the helper (`SenderCreator`) directly, bypassing the EntryPoint → the proxy lands at the victim's address → call `preValidationSetup` with a malicious `delegatecall` → set yourself as owner. The victim's pre-funded ETH and any permissions granted to that address are taken over. **V** | **Fixed** in revision 1.1 (report dated **2024-07-05**, fix-review commit `180f0ac`): the function now reverts with `Safe7579LaunchpadAlreadyInitialized()` if an init hash is already stored. **V** |
-| **H1 (High)** — `initializeAccount` could be front-run | **Fixed** (added `onlyEntryPointOrSelf`) **V** |
-| **H2 (High)** — executors unusable (wrong `msg.sender` context in `withRegistry`) | **Fixed** (uses `_msgSender()`) **V** |
-| Overall | Of 24 findings: **20 fixed, 3 acknowledged** (incl. L3 "ERC-4337 factory standard violation"), **1 not fixed** (W7, an incomplete unused helper); **M5 "Locked Ether" only partially fixed**. The fix review covered **only the remediations**; other code changes after that commit **weren't audited**. **V** |
-| New tech = fewer battle-tested deployments. **L** | Mitigation: pin a release at/after the fixed commit; check for newer audits; use only audited Rhinestone modules. |
-
----
-
-### Option C — OpenZeppelin custom smart account (`AccountERC7579Hooked`)
-
-**What it is.** Build our own wallet from OpenZeppelin's new account contracts:
-- `Account` (4337),
-- `AccountERC7579` / `AccountERC7579Hooked` (plug-ins + hooks),
-- multisig signer `MultiSignerERC7913`,
-- `ERC7821` batching.
-
-Added in **OZ v5.4.0 (2025-07-17)**. The latest is v5.6.1 (2026-02-27). **V**
-
-**Pros**
-- **Straight from the guide's wording:** "use audited libraries (OpenZeppelin)". Maximum grading signal.
-- **Full control and deep learning:** you'd understand the account end to end. Great interview material.
-- **Modern:** 7579 hooks, EIP-7702 signer support (`SignerERC7702`), passkeys (`SignerP256`). **V**
-- Clean Foundry workflow, MIT license.
-
-**Cons**
-- **Not what institutions run.** "We built our own wallet" is exactly what the instructor warned against (don't reinvent custody). Big hit on your 20% institutional weight.
-- **You own the security of the wallet itself**, not just the policy. More to test with Echidna, more risk.
-- No existing web UI (the Safe web app wouldn't work with it), so the frontend must do everything.
-
-**Limitations / considerations**
-- **EntryPoint version moves fast:** v5.5.0 defaults `Account` to **EntryPoint v0.9**. **V** Bundlers and paymasters on testnet must support that version (R6 risk).
-- The ERC-7579 contract files are named **`draft-`**, and OZ warns that "draft-" contracts **may have breaking changes between releases**. **V** Pin the version.
-
-**Known issues & known fixes**
-
-| Issue | Status / fix |
-|---|---|
-| `draft-AccountERC7579` API may change. **V** | Pin OZ version in `foundry.toml`. Don't upgrade mid-project. |
-| v5.5.0 fix: `AccountERC7579` no longer reverts when a module's uninstall hook fails. Earlier behaviour could block removing a broken module. **V** | Use ≥ v5.5.0. |
-| Audit status for the account contracts isn't stated on the release notes we read. OZ normally audits main-library releases. **L** | Check OZ's audits page before relying on it. |
-
----
-
-### Option D — Zodiac Roles Modifier v2 (use existing permission system)
-
-**What it is.** Gnosis Guild's Safe add-on. It sits between Safe modules and the Safe and enforces **role-based permissions**: which address may call which function with which parameters. It also has **allowances**: a spending budget that refills every period, with a max cap. **V**
-
-**Pros**
-- **Mature and audited:** G0 Group and Omniscia; all findings resolved as of a stated commit. **V** Used by DAOs (e.g., ENS endowment permissions). **V**
-- **Very expressive** parameter conditions (e.g., "may call `transfer` only to these addresses, below this amount").
-- LGPL-3.0, TypeScript SDK, subgraph, web UI already exist. **V**
-
-**Cons**
-- **Doesn't cover our differentiators:** allowances are in raw token units, **no USD/oracle pricing**, and there's **no receiving-side logic** (invoices, sender checks). **L** (by absence in docs)
-- **Weak portfolio signal:** the core logic would be someone else's code. Configuring it isn't the same as building it, which hurts the "demonstrate mastery" goal.
-- **Complex to configure correctly:** permission trees are powerful but easy to get wrong.
-
-**Limitations / considerations**
-- Only applies to transactions that go **through the Roles modifier** (module path). Owner-signed Safe transactions aren't covered unless you also add a guard.
-- The README says "WITHOUT ANY WARRANTY". Standard, but audit scope must still be checked. **V**
-
-**Known issues & known fixes**
-- No open critical issues found in the time box. Audit findings were resolved. **V**
-- **Best use for us:** as the **reference design** for our velocity limits (refill amount, period, max refill, balance) and as a competitor on the "why different" slide. Not as the base.
-
----
-
-### Option E — Fully custom vault contract (no smart account)
-
-**What it is.** One contract we write that holds the funds and has its own owners, approvals and rules.
-
-**Pros**
-- **Simplest to build and test.** Everything is in one place and fully under your control.
-- Easiest Echidna/fuzz setup.
-
-**Cons**
-- **Reinvents custody:** it contradicts the instructor's direction and R1's finding that institutions use proven wallets plus policy layers.
-- Custodians can't "plug in" naturally. No ecosystem (no Safe app, no 4337 tooling unless we build it).
-- You carry the full security burden of a funds-holding wallet.
-
-**Limitations / known issues**
-- Every classic vault bug is yours to prevent: reentrancy, signature replay, approval race conditions, stuck funds. No external audit backing.
-
----
-
-### Dropped at the gates
-- **ERC-6900 (Alchemy modular accounts):** a smaller ecosystem than ERC-7579 and weaker tooling. Fails the maintenance/tooling gate for our time box. **L**
-
----
-
-## 3. Hard gates
-
-| Option | Sepolia + Base Sepolia | No business account | Foundry + viem | Maintained / audited | Permissive license | Solo-buildable (M13–16) | Result |
-|---|---|---|---|---|---|---|---|
-| A. Safe v1.5 + Guard/Module | ✅ L | ✅ | ✅ | ✅ Certora, Ackee | ✅ LGPL | ✅ | **Pass** |
-| B. Safe + Safe7579 Hook | ✅ L | ✅ | ✅ ModuleKit | ✅ Ackee audited; critical + highs fixed (v4) | ✅ | ✅ | Pass |
-| C. OZ custom account | ✅ we deploy | ✅ | ✅ | ✅ L | ✅ MIT | ✅ | Pass |
-| D. Zodiac Roles as base | ✅ | ✅ | ✅ | ✅ G0, Omniscia | ✅ LGPL | ✅ | Pass (reference only, see D) |
-| E. Custom vault | ✅ | ✅ | ✅ | n/a | ✅ | ✅ | Pass |
-| ERC-6900 | — | ✅ | ⚠️ | ⚠️ | ✅ | — | Drop |
-
-## 4. Weighted scoring (D7 weights)
-
-| Criterion (weight) | A. Safe + Guard | B. Safe7579 Hook | C. OZ account | D. Zodiac Roles | E. Custom vault |
-|---|---|---|---|---|---|
-| Requirement fit (25) | 4 | 4 | 4 | 2 — no USD, no receiving side | 3 |
-| Institutional alignment (20) | **5** | 4 | 2 | 4 | 1 |
-| Grading coverage (15) | 4 | 4 | **5** | 2 — little own code | 4 |
-| Portfolio & learning (12) | 4 | **5** | 4 | 2 | 3 |
-| Maturity & security (10) | **5** | **4** (v4, was 3: audit fixes verified; still newer + less used) | 3 | **5** | 2 |
-| Testnet & tooling (10) | 4 | 4 | 4 | 4 | **5** |
-| Solo effort & risk (8) | 4 | 3 | 3 | 4 | **5** |
-| **Weighted total (/5)** | **4.30** | **4.04** (v4, was 3.94) | 3.57 | 3.06 | 3.01 |
-
-**Sensitivity check:** swapping Institutional (20→12) and Portfolio (12→20) gives A 4.22 vs B 4.12. A still wins, but the gap is narrower after v4.
-
----
-
-## 5. Recommendation: Option A (Safe v1.5 + our Guard + Module), with an account-agnostic, ERC-7579-ready PolicyEngine
-
-```
-Custodian MPC key(s) / approvers ──► Safe v1.5 (owners, threshold)
-                                          │
-        ┌─────────────────────────────────┼──────────────────────────────┐
-        │ Path 1: owner-signed Safe tx    │ Path 2: proposals via module │
-        │  (execTransaction)              │  (operators, MCP agent)      │
-        ▼                                 ▼                              │
-  PolicyGuard.checkTransaction     PaymentModule: propose → EIP-712      │
-        │                          approvals (tiered) → execTransaction- │
-        │                          FromModule → PolicyGuard.checkModule- │
-        │                          Transaction                            │
-        └──────────────► PolicyEngine.check(Intent) ◄───────────────────┘
-                          (limits, allowlist, USD via Chainlink, tx-type rules)
-```
-
-### Reasoning
-1. **It matches the brief.** The instructor asked for a policy layer on top of existing custody, not a new wallet. Safe is the existing custody wallet institutions use, and R1 showed custodians connect to it as signers. A scores 5/5 on your highest non-fit weight (institutional, 20%). C and E lose most of those points.
-2. **It covers every path.** Since v1.5, owner-signed *and* module transactions both hit our guard. That's what makes the "backstop that can't be bypassed" pitch true. B also covers this, but with more layers. D only covers the module path.
-3. **Lowest security risk for a solo build.** Safe's core is audited and battle-tested. Our risk is limited to our own guard, module and engine, and the biggest one (guard bricking) has a known, testable fix. B's audit issues are fixed (v4), but it adds a younger, less-used layer, and code changed after the fix review wasn't re-audited. C and E make you responsible for the whole wallet.
-4. **It keeps grading and portfolio strong anyway.** All the graded work (OZ libraries, access control, reentrancy, pull payments, oracle pricing, Echidna invariants) sits in *our* contracts, not Safe's. Portfolio story: "I built a guard + module + policy engine that would have stopped the Bybit attack."
-5. **We keep B's upside as a roadmap item.** PolicyEngine has no Safe-specific code (§7.3). Later, a thin ERC-7579 hook wrapper makes it portable. Pitch line: *"Built on Safe today; the policy engine is ERC-7579-ready."*
-6. **Robust to your weights.** It wins under the sensitivity check, and the runner-up (B) shares most of the design, so switching later is cheap.
-
-### Conditions / what would change the recommendation
-- **The instructor explicitly prefers ERC-7579** → switch to B. PolicyEngine and PaymentModule carry over; only PolicyGuard becomes a 7579 hook. Pin a Safe7579 release at/after the fixed commit and check for newer audits.
-- **Safe v1.5 isn't deployed on Base Sepolia** → deploy it ourselves from the official repo (it's permissionless), or use v1.4.1 with a transaction guard and have PaymentModule call PolicyEngine directly.
-- **R6 finds no bundler/paymaster supporting Safe4337Module's EntryPoint version** → gas sponsorship via our own relayer (D18) instead of 4337.
-- **Stretch goal (dev phase, only if ahead of schedule):** build the ERC-7579 hook wrapper and demo PolicyEngine on a second account type.
-
----
-
-## 6. Status
-**Approved → D9** (2026-09-25). v4 correction (2026-09-29) doesn't change the decision.
-
----
-
-## 7. Integration notes for Option A (explains the "Cons")
-
-### 7.1 "Safe's contracts are large and older-style"
-**What it means**
-- The Safe singleton combines several managers: owners, modules, guards, fallback handler, and signature checking. Signature checking accepts four kinds: EOA signatures, contract signatures (EIP-1271), pre-approved hashes, and `eth_sign`-style signatures.
-- **Proxy pattern:** every Safe is a thin proxy that `delegatecall`s one shared singleton. New Safes come from a proxy factory.
-- **Written for wide compatibility, not modern style:** a broad Solidity version range, some inline assembly, owners/modules stored in custom sentinel linked lists, and a repo built around Hardhat rather than Foundry. **L**
-
-**What it means for us**
-- We only need a small set of touchpoints:
-  - `execTransaction` and its parameters (to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, signatures)
-  - `getTransactionHash` (the EIP-712 hash owners sign)
-  - `execTransactionFromModule`
-  - the Guard / Module Guard interfaces
-  - `setGuard`, `setModuleGuard`, `enableModule`
-- **Test setup cost:** in Foundry, deploy the Safe singleton + proxy factory in `setUp()`, or fork-test against the testnet deployments.
-- **Budget:** about half a day to read these parts and get a Safe running in a Foundry test.
-
-### 7.2 "Two code paths must both be tested"
-
-| | Path 1: owner-signed | Path 2: PaymentModule |
+# Product Requirements Document (PRD)
+
+## 1. Summary
+An **on-chain policy backstop for institutional stablecoin treasuries**, built on top of existing custody (Safe owned by custodian MPC keys). It enforces **outgoing** spending rules, **clears incoming** invoice payments through an escrow, applies **one rulebook across chains** (hub-and-spoke via Chainlink CCIP), and lets **AI agents propose** payments without being able to spend.
+
+## 2. Problem
+- Custodian policy engines are **off-chain**: they can be bypassed (e.g., recovery paths) and hide rules from counterparties and auditors.
+- **Incoming** payments aren't governed: unknown senders, unmatched payments ("unapplied cash"), sanctions exposure.
+- Treasuries span **multiple chains**. Custodian caps can span chains but only see what the custodian signs; on-chain wallet rules keep separate limits per chain with no shared cap; and bridges are a top attack target (KelpDAO $292M, 2026).
+- Multisigs check **who** signed, not **what** was signed (Bybit $1.5B, 2025).
+- Teams want AI agents in finance ops but can't safely give them spending power.
+
+## 3. Goals & non-goals
+
+**Goals (MVP)**
+1. Enforce USD-denominated outgoing limits, allowlists, tiered approvals and time-locked rule changes **on-chain**, on a Safe.
+2. Receive invoice payments into an **escrow** with automatic checks, human clearance, settlement and refunds.
+3. Pay out and receive **across two chains** (Sepolia hub ↔ Base Sepolia spoke) with rules decided on the hub.
+4. Offer **gasless** operations for staff and payers (relayer).
+5. Expose a **propose-only MCP server** for AI agents.
+6. Meet every capstone grading item (security patterns, oracles, full test suite incl. Echidna, multichain deployment, docs).
+
+**Non-goals (MVP)**
+- Replacing custodians or MPC; real custodian API integrations.
+- Mainnet production use; handling real customer funds.
+- AI invoice reconciliation, privacy L2s, receivables financing, more than 2 chains, spoke float.
+
+## 4. Personas
+
+| Persona | Needs | Maps to role |
 |---|---|---|
-| Entry | Owners sign off-chain; anyone submits `execTransaction` | Our module calls `execTransactionFromModule` |
-| Guard hooks | `checkTransaction` (before) + `checkAfterExecution` (after) | `checkModuleTransaction` (+ after-execution hook, **L**) |
-| Guard sees | Tx params, signatures, submitter (`msg.sender`) | Tx params and which module; no signatures |
-| Initiator identity | The owners | Operator or MCP agent, tracked inside PaymentModule |
+| **Treasury Operator** (finance ops) | Pay approved vendors quickly within limits | OPERATOR |
+| **Approver / Controller** | Review and sign larger payments; clear flagged receipts | APPROVER |
+| **Treasury Owner / Custodian signer** | Final authority for large moves; govern policy | Safe owners (POLICY_ADMIN via Safe) |
+| **Risk / Security Officer** | Freeze fast; veto risky rule changes | GUARDIAN |
+| **Payer (customer)** | Pay an invoice easily, from either chain, ideally gasless | External |
+| **AI Agent** (via MCP) | Read state, simulate and propose payments | AGENT |
+| **Auditor / Instructor** | Verify rules and history publicly | Read-only |
 
-**Risks**
-- **Double-counting or no counting:** the velocity limit must count each payment exactly once, whichever path it took. Rule of thumb: only PolicyEngine (called via the guard) updates spend counters. PaymentModule may *pre-check* read-only but never records spend.
-- **Rule enforced on one path only** = a bypass.
+## 5. User stories & acceptance criteria (by epic)
 
-**The same payment can take several "shapes"; the guard must understand each one**
-- **ETH transfer:** the amount is in `value`.
-- **ERC-20 transfer:** a call to the token contract; the recipient and amount are inside `data`. Decode `transfer`, `transferFrom`, `approve` (and block or cap unlimited `approve`).
-- **Batches:** Safe's MultiSend runs as a `delegatecall`. The guard sees one call to MultiSend unless it unpacks the batch. **Decision (R3):** block batching in v1; decoding is a Could.
-- **Self-calls** (`to == safe`: add owner, change threshold, remove guard, enable module) → only via the time-locked admin path.
-- **Unknown contract calls** → deny by default (allowlist of contracts + function selectors).
-
-**Test plan implication:** each rule × each path × each shape, plus deliberate bypass attempts. Echidna invariant, for example: *"total USD spent in the current window ≤ limit, regardless of path or shape."*
-
-### 7.3 "ERC-7579 portability isn't native"
-- A Safe guard implements Safe's interfaces. An ERC-7579 hook implements `preCheck` / `postCheck`, install/uninstall functions, and uses 7579's own encoding for single vs. batch execution. They aren't interchangeable.
-- **Mitigation (built into the design):** PolicyEngine only accepts a normalized **Intent**; each adapter translates its wallet's format into it:
-
-```
-Intent { initiator, chainId, calls[]: (target, value, data) }
-        ▲                                   ▲
- PolicyGuard (Safe format)        future ERC-7579 hook (7579 format)
-```
-
-- **Cost:** decoding logic per adapter.
-- **Benefit:** PolicyEngine is small, pure and easy to fuzz on its own.
-
-### 7.4 Bybit incident (21 Feb 2025) — why guards matter
-- About **$1.5B** stolen (roughly 400k ETH) from Bybit's Safe cold wallet. Publicly attributed by the FBI to North Korea's Lazarus Group. **L** (widely reported)
-- **How it happened:**
-  1. Attackers compromised a Safe developer's machine and got into Safe's AWS.
-  2. They injected malicious code into the Safe web app, targeting only Bybit's wallet.
-  3. Signers saw a normal transfer but actually signed a `delegatecall` that swapped the wallet's implementation for the attacker's.
-  4. The signers blind-signed: they didn't verify the transaction on their hardware wallets.
-  5. With the implementation swapped, the attacker drained the wallet. **V**
-- **Lesson:** the multisig worked as designed. It checked *who* signed, not *what* was signed. A guard banning `delegatecall` to non-allowlisted targets would have blocked it. **V** (Ackee)
-- **Honest framing for the pitch:** the root causes were a supply-chain/UI compromise and blind signing. A guard is one strong layer that would have stopped this specific attack; it's not a claim to prevent all hacks.
-- **Pitch line:** *"A multisig checks who signed. Our guard checks what they signed."*
-
-### 7.5 ERC-7579 is still "Draft" — why wallets use it anyway, and our stance
-- **Status:** ERC-7579 is a **Draft** (created 2023-12-14); its security section still "needs more discussion". **V** By comparison, ERC-4337 (created 2021) is now **Final**, but was widely used in production long before that. **V** status / **L** timeline
-- **Why wallets use it anyway:**
-  - ERC status tracks the *document*, not real-world use.
-  - The major account vendors (Rhinestone, ZeroDev/Kernel, Biconomy/Nexus, OKX, OpenZeppelin, Safe via adapter) agreed on it for interoperability: write a module once, run it on every compliant account.
-  - Security comes from audited implementations, not the ERC's label.
-- **Real risks of a draft:** the spec can change (OZ's `draft-` files may break between releases); edge-case behaviour can differ between vendors; docs and tutorials go stale quickly.
-- **Our stance:** don't make it the base, but design for it (§7.3), mention it in the pitch, and treat the 7579 hook wrapper as a stretch goal.
-
----
-
-## 8. Are public on-chain rules dangerous?
-
-**Security logic: not weakened by being public.** A good system stays secure even when the attacker knows the design. A $10k/day cap still stops a $1M theft whether or not the attacker knows about it.
-
-**What *is* exposed:**
-1. **Business privacy:** the allowlist reveals counterparties (vendors, exchanges, partners); limits hint at treasury size and operating patterns. Competitors can read it.
-2. **Attack planning:**
-   - An attacker with a stolen key can drain *just under* the cap every day (a $100k/day cap ≈ $3M/month if nobody notices).
-   - A known allowlist tells attackers which addresses to target: compromise a vendor's wallet, or **address poisoning** (look-alike addresses sent from so someone copies the wrong one).
-   - Approver addresses are public, making those people phishing targets.
-3. **Confidentiality obligations:** some institutions are contractually or legally required not to disclose counterparties.
-
-**Context:** transactions are already public, so past payees are already visible. Public rules add *future intent* and exact thresholds. A real but moderate incremental leak.
-
-**Mitigations (carried into R3):**
-
-| Mitigation | What it does | MVP? |
+### E1 — Policy configuration & governance
+| ID | Story | Acceptance criteria |
 |---|---|---|
-| **Coarse on-chain caps** | On-chain limits set well above normal operations as a disaster backstop; tight, detailed rules stay in the custodian's private off-chain engine | Must |
-| **Salted Merkle-root allowlist** | Store only a Merkle root of the allowlist; an address is revealed only when used (with a Merkle proof). The salt stops attackers hashing known addresses (e.g., exchanges) to test membership | Should |
-| **Velocity alerts (backend)** | Warn when spend approaches a cap; addresses "drain just under the limit" | Should (fits D6 backend) |
-| **Address-poisoning defence** | Exact-match allowlist (never "similar" addresses); UI shows full address + label from the allowlist | Must (UI + contract) |
-| **Privacy roadmap** | Privacy L2 / ZK proofs of policy compliance | Roadmap only |
+| E1.1 | As an Owner, I set per-role limits (auto, tier-2, per-tx), buckets and the hard cap | Values stored on-chain; events emitted; UI shows current values |
+| E1.2 | As an Owner, loosening changes wait for a time-lock | Loosening is queued with an ETA; executes only after the ETA; the UI shows a countdown |
+| E1.3 | As a Guardian, I can veto a queued loosening change | A cancelled change never takes effect; event emitted |
+| E1.4 | Tightening changes apply instantly | Lowering a limit or removing a payee takes effect in the same transaction |
+| E1.5 | As a Guardian, I can pause the engine or a lane instantly | While paused, only the minimal owner path + recovery works; unpause needs the admin quorum |
+| E1.6 | Payees are added with an activation delay | A payment to a payee before `activatesAt` is DENIED |
 
----
+### E2 — Outgoing payments
+| ID | Story | Acceptance criteria |
+|---|---|---|
+| E2.1 | As an Operator, I pay an allowlisted vendor ≤ my auto limit without extra approval | Executes via PaymentModule; bucket decreases by the USD value (rounded up) |
+| E2.2 | Above the auto limit, K-of-N approvers must sign the exact intent | Execution fails without K distinct, valid, unexpired, unused signatures; the proposer can't approve |
+| E2.3 | Above tier-2, only owners can execute | Module path DENIES; an owner-signed Safe tx succeeds ≤ hard cap |
+| E2.4 | Nothing exceeds the hard cap or buckets | DENY for any path; the UI explains why |
+| E2.5 | Dangerous call types are blocked | `delegatecall` to non-allowlisted targets, unknown contract calls, unlimited `approve`, and self-calls outside the admin path are DENIED |
+| E2.6 | Stale/invalid prices never auto-approve | Payment falls to NEEDS_APPROVAL; UI shows "price unavailable" |
+| E2.7 | Pay a vendor on Base from the hub treasury | `ccipSend` is policy-checked (payee allowlisted for Base, fee counted); vendor receives funds on Base; UI shows Sent → In transit → Delivered |
 
-## 9. Inputs to R3 (policy engine design)
-1. PolicyEngine takes a normalized `Intent { initiator, chainId, calls[] }`; adapters (PolicyGuard now, 7579 hook later) do the decoding.
-2. Only the guard path records spend; module pre-checks are read-only (no double-counting).
-3. Decode ETH value, ERC-20 `transfer` / `transferFrom` / `approve`; deny unknown selectors by default.
-4. MultiSend: block batching in v1 (decoding = Could).
-5. Self-calls (owner/threshold/guard/module changes) only via the time-locked admin path; the guard must always allow its own removal after the delay (anti-bricking).
-6. Block `delegatecall` except to allowlisted targets (Bybit lesson).
-7. Privacy: coarse caps; plain mapping now, salted Merkle-root allowlist as a Should; velocity alerts in the backend.
-8. Gas: O(1) checks on every transaction.
+### E3 — Incoming payments & clearance
+| ID | Story | Acceptance criteria |
+|---|---|---|
+| E3.1 | As an Operator, I create an invoice and share a pay link | Invoice stored on-chain (key fields + `docHash`); the document stored off-chain; public pay page works |
+| E3.2 | As a Payer, I pay an invoice on the hub | Escrow entry created; the receiver never reverts on business-rule failures |
+| E3.3 | As a Payer on Base, I pay cross-chain | Token + invoiceId arrive atomically on the hub; same checks as E3.2 |
+| E3.4 | Auto-checks clear good payments | Exact match + allowed payer + sanctions OK → CLEARED; otherwise FLAGGED with a reason |
+| E3.5 | As an Approver, I clear or reject flagged entries | Maker-checker enforced; state changes + events |
+| E3.6 | Cleared funds are pulled into the Safe | `settle` moves only CLEARED entries; SETTLED once |
+| E3.7 | Rejected/overpaid funds are refundable | Same chain: payer `claimRefund`; cross-chain: approver-triggered REFUND; never refunded twice |
+| E3.8 | Direct transfers and spam are handled | Untracked balance recorded as UNMATCHED; unsupported tokens never swept |
+| E3.9 | Sanctioned payers are frozen, not refunded | Entry FLAGGED "sanctions"; no automatic refund |
+| E3.10 | Reminders for overdue invoices and pending reviews | Jobs send notifications on due date / review deadline |
 
-## 10. Sources
-- Safe Guards: https://docs.safe.global/advanced/smart-account-guards
-- Guard tutorial: https://docs.safe.global/advanced/smart-account-guards/smart-account-guard-tutorial
-- Safe v1.5.0 (module guards): https://safefoundation.org/blog/introducing-safe-v1-5-0-module-guards-enhanced-smart-account-features
-- Safe + ERC-4337: https://docs.safe.global/advanced/erc-4337/4337-safe
-- Safe 4337 permissionless guide (EntryPoint v0.6 / module v0.2.0): https://docs.safe.global/advanced/erc-4337/guides/permissionless-detailed
-- Safe + ERC-7579: https://docs.safe.global/advanced/erc-7579/7579-safe
-- Safe7579 repo: https://github.com/rhinestonewtf/safe7579
-- **Ackee full audit report (Safe7579, rev 1.1, 2024-07-05):** https://github.com/rhinestonewtf/safe7579/blob/main/audits/ackee-blockchain-rhinestone-safe7579-report.pdf
-- Ackee audit summary (Safe7579): https://ackee.xyz/blog/rhinestone-erc-7579-safe-adapter-audit-summary/
-- OpenZeppelin Smart Accounts: https://docs.openzeppelin.com/contracts/5.x/accounts
-- OpenZeppelin changelog (v5.4.0, v5.5.0, draft- warning): https://docs.openzeppelin.com/contracts/5.x/changelog
-- ERC-7579 (status: Draft): https://eips.ethereum.org/EIPS/eip-7579
-- ERC-4337 (status: Final): https://eips.ethereum.org/EIPS/eip-4337
-- Zodiac Roles repo (audits, license): https://github.com/gnosisguild/zodiac-modifier-roles
-- Zodiac Roles allowances: https://docs.roles.gnosisguild.org/general/allowances
-- Ackee — Safe-native solution to the Bybit hack (ScopeGuard): https://ackee.xyz/blog/a-safe-native-solution-to-the-bybit-hack/
-- NCC Group — Bybit technical analysis: https://www.nccgroup.com/research/in-depth-technical-analysis-of-the-bybit-hack/
-- Check Point Research — The Bybit incident: https://research.checkpoint.com/2025/the-bybit-incident-when-research-meets-reality/
+### E4 — Gasless UX
+| ID | Story | Acceptance criteria |
+|---|---|---|
+| E4.1 | Staff never need ETH to propose/approve | Proposals and approvals are EIP-712 signatures; the relayer submits executions |
+| E4.2 | Relayer can't be abused | Only role-signed payloads accepted; simulated before sending; rate limits; gas budget alerts |
+| E4.3 | (Should) USDC payers pay with one signature | `receiveWithAuthorization` flow works; front-running doesn't break invoice linking |
+| E4.4 | (Should) 4337 sponsored ops still pass the guard | Spike S3 passes; otherwise documented as roadmap |
+
+### E5 — AI agent (MCP)
+| ID | Story | Acceptance criteria |
+|---|---|---|
+| E5.1 | As an Agent, I can read policy, balances, payees, invoices | MCP tools return data; no secrets exposed |
+| E5.2 | As an Agent, I can simulate a payment | Returns ALLOW / NEEDS_APPROVAL / DENY + reason via `eth_call` |
+| E5.3 | As an Agent, I can propose but never execute | Proposals land in the queue with NEEDS_APPROVAL; no tool can approve/execute/change policy; AGENT auto limit = $0 |
+| E5.4 | Agents can't add payees or spam | Payee must pre-exist; rate limit enforced |
+
+### E6 — Visibility & audit
+| ID | Story | Acceptance criteria |
+|---|---|---|
+| E6.1 | Dashboard of balances (USD), buckets, pending items | Loads from chain + subgraph; refreshes on events |
+| E6.2 | Full history of payments, approvals, escrow and policy changes | Subgraph-backed; each item links to the explorer / CCIP explorer |
+| E6.3 | Export an audit log | CSV/JSON export from the API |
+
+### E7 — Engineering & grading
+| ID | Story | Acceptance criteria |
+|---|---|---|
+| E7.1 | Comprehensive tests | Unit, fuzz, invariant (19 invariants), fork, Echidna, E2E; ≥ 90% line coverage on core contracts |
+| E7.2 | Static analysis | Slither + Aderyn in CI; no unresolved High findings; `SECURITY.md` triage table |
+| E7.3 | Multichain deploy + verify | Foundry scripts deploy hub + spoke; contracts verified on Etherscan/Basescan |
+| E7.4 | README + roadmap | Local spin-up via Docker Compose in ≤ 15 min; roadmap section |
+
+## 6. Functional requirements
+_Defined in `01-requirements-analysis.md` §3.1 (from the instructor meeting); repeated here so the PRD stands alone._
+
+| ID | Requirement | Priority | Covered by |
+|---|---|---|---|
+| F1 | Outgoing spend rules: periodic (velocity) limits and approved (allowlisted) recipients | Must | E1, E2 |
+| F2 | Receiving contract: allowlist of senders, allowed amount ranges, invoice verification hook | Must | E3.2–E3.4, E3.9 |
+| F3 | Payment clearance only after invoice match + compliance checks (hold → clear → release) | Must | E3.4–E3.8 |
+| F4 | Works alongside an existing custodian (we don't hold keys; custodian MPC keys = Safe owners) | Must (design) / Should (real integration → roadmap) | E2.3 |
+| F5 | Cross-chain payments via hub-and-spoke routing | Must (1 lane) | E2.7, E3.3 |
+| F6 | Transparent routing/UI fees (CCIP fee quoted, shown, counted toward limits) | Should | E2.7 |
+| F7 | Fee modes: payer pays vs. sponsored (gasless) transactions | Should | E4 |
+| F8 | API abstraction layer + MCP server for AI agents (propose-only) | Should | E5 |
+| F9 | Off-chain reminders / settlement deadlines | Should | E3.10 |
+| F10 | AI invoice reconciliation | Won't (roadmap) | — |
+
+## 7. Non-functional requirements
+| Area | Requirement |
+|---|---|
+| Security | Threat model T1–T16 mitigated (R9); receivers never revert on business rules; anti-bricking guarantee; all loosening time-locked |
+| Correctness | 19 invariants hold under Foundry invariant tests and Echidna |
+| Gas | Guard overhead target < 60k gas per simple transfer (measure; document) |
+| Latency | Same-chain ops: 1 block. Cross-chain: minutes (CCIP finality), clearly shown in the UI |
+| Availability | If the backend/relayer is down, owners can still execute signed Safe transactions directly (no loss of control) |
+| Auditability | Every decision/state change emits an event; public on-chain rules (coarse caps) |
+| Privacy | Only coarse caps + allowlist on-chain; documents off-chain; Merkle allowlist as a Should |
+| Usability | Every DENY / NEEDS_APPROVAL has a human-readable reason in the UI |
+| Portability | Engine takes a normalized `Intent` (ERC-7579-ready); bridge behind `ICrossChainAdapter`; relayer behind `IRelayer` |
+
+## 8. Success metrics (demo / evaluation)
+- **All Must stories demoed end-to-end on testnet** (Sepolia + Base Sepolia).
+- **Attack-replay demo:** Bybit-style `delegatecall` blocked; forged CCIP sender quarantined; agent proposal can't execute.
+- Tests: 19/19 invariants green; ≥ 90% core coverage; Slither/Aderyn clean of Highs.
+- Local setup from README in ≤ 15 minutes.
+- (Stretch) Gasless 4337 op passing the module guard.
+
+## 9. Scope (MoSCoW) — see `04-tech-discovery.md` §10
+Must: E1, E2 (incl. E2.7), E3 (except CREATE2), E4.1–E4.2, E5, E6.1–E6.2, E7. Should: E4.3, E4.4, EAS KYB, Merkle allowlist, CREATE2 deposit addresses, E6.3. Could: CRE verdict, `propose_invoice`, ERC-7579 wrapper, MultiSend decoding.
+
+## 10. Release plan (Modules 13–16, ~4 weeks)
+
+| Week | Module | Focus | Exit |
+|---|---|---|---|
+| **W1** | M13 Oracles | Spikes S1–S8; repo + CI skeleton; PolicyEngine core (buckets, tiers, allowlist, oracle adapter); Go ramp-up | Spikes decided; engine unit/fuzz tests green; CI running |
+| **W2** | M14 Static/dynamic analysis | PolicyGuard + PaymentModule on Safe v1.5; governance/time-lock/pause; InvoiceRegistry + Escrow; invariant + Echidna harnesses | Same-chain outgoing + incoming flows work on Anvil; 19 invariants written |
+| **W3** | M15 | CCIP adapter + SpokeGateway; Go API, relayer, listener/jobs; subgraph; Next.js core screens | Cross-chain payout + incoming work on testnet; UI covers E1–E3 |
+| **W4** | M16 + Final Evaluation | MCP server; Should items as time allows; E2E tests; deploy + verify; README, SECURITY.md, roadmap; demo rehearsal | All Musts demoed; docs complete |
+
+## 11. Dependencies
+Safe v1.5 deployments (Sepolia/Base Sepolia) · Chainlink CCIP lane + Data Feeds on Sepolia · Circle USDC faucet · EAS (Should) · Subgraph Studio · Safe Transaction Service · RPC providers.
+
+## 12. Risks (top) — see `04-tech-discovery.md` §12
+Scope vs one month · Go/The Graph learning · USDC on the testnet lane · testnet feed staleness · security tests squeezed · guard bricking.
+
+## 13. Pitch questions — answered by Pops (2026-09-29)
+| # | Question | Answer | Consequence |
+|---|---|---|---|
+| 1 | CCIP acceptable, or LayerZero preferred? | **CCIP for now**; switch only if the instructor asks | Keep `ICrossChainAdapter` so a LayerZero adapter is a contained change (≥2 DVNs, pinned configs, Composer escrow) |
+| 2 | Does M13 still expect Chainlink Functions? | **No** | No Functions dependency; CRE verdict stays a Could |
+| 3 | Safe v1.5 base vs ERC-7579 modular account? | To be raised in the pitch with the explanation below | Engine stays account-agnostic; the 7579 hook wrapper is a stretch |
+| 4 | Testnet-only demo acceptable? | **Yes** | D15 unchanged (L2 mainnet fallback only if rehearsal fails) |
+
+**Q3 explained (for the pitch):**
+- *Safe v1.5 (our choice):* the most-used institutional multisig. Our rules plug in as a **guard** (checks every transaction, including module/4337 ones since v1.5) plus a **module** (proposals/approvals). Lowest security risk for a solo build; custodians already sign for Safes.
+- *ERC-7579 modular account:* a newer standard where plug-ins ("hooks") run on any compliant wallet brand (Kernel, Nexus, Safe via adapter). More portable and modern, but the standard is still **Draft**, and the Safe adapter is younger and less used (its 2024 audit found a critical wallet-takeover bug, since **fixed**; code changed after the fix review wasn't re-audited). It also adds a layer to learn and test.
+- *Our bridge between both:* the PolicyEngine takes a wallet-neutral `Intent`, so wrapping it as an ERC-7579 hook later is a thin adapter, not a rewrite. **Ask:** "Is Safe + guard acceptable, or do you want the 7579 version in scope?"

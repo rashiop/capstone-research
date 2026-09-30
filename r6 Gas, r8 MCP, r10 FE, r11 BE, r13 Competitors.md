@@ -161,7 +161,7 @@ The table above optimised for "one language, least infra". With those constraint
 
 | Product | What it is | What it does well | Gap relative to our project |
 |---|---|---|---|
-| **Fireblocks / BitGo / Coinbase Prime** (R1) | MPC custodians with **off-chain** policy engines | Rich private rules, key security, compliance ops | Rules are off-chain (bypassable via recovery paths, BitGo docs **V**); not focused on **incoming-payment clearance**; per-chain. **We complement them:** their MPC key is a Safe owner; we add an on-chain backstop |
+| **Fireblocks / BitGo / Coinbase Prime** (R1) | MPC custodians with **off-chain** policy engines | Rich private rules, key security, compliance ops | Rules are off-chain (bypassable via recovery paths, BitGo docs **V**); not focused on **incoming-payment clearance**; caps can span assets/chains (Fireblocks `asset:"*"` USD TIMEFRAME **L**, BitGo enterprise $250k/day check **V**) but only for transactions they sign, not on-chain (R1b). **We complement them:** their MPC key is a Safe owner; we add an on-chain backstop |
 | **Safe + Zodiac Roles** (R2) | Multisig + role/permission module with token-unit allowances | Mature, audited, expressive permissions | No USD pricing; no receiving side; module path only (unless combined with a guard); no cross-chain rules |
 | **Cobo Argus** (R1, R3) | Safe-based role delegation with pluggable authorizers; Chainlink-priced checks | Institutional DeFi operations (farming, delegation) | Focused on **outgoing DeFi operations**, not invoices/incoming payments or cross-chain treasury **L** |
 | **Brahma** | Safe-based accounts with **sub-accounts** and access control for teams | Team operations, sub-account isolation | Outgoing-focused; no invoice escrow **L** |

@@ -8,7 +8,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 
 ## 1. Problem → solution in brief
 
-**Problem.** Institutions hold stablecoins across several chains through custodians (Fireblocks, BitGo, Coinbase Prime) whose rules live **off-chain**. Off-chain rules can be bypassed (recovery paths, compromised UIs), don't cover **incoming** payments, and aren't consistent **across chains**. Recent losses show that the contracts can be fine while configuration and infrastructure fail:
+**Problem.** Institutions hold stablecoins across several chains through custodians (Fireblocks, BitGo, Coinbase Prime) whose rules live **off-chain**. Off-chain rules can be bypassed (disaster-recovery paths that sign outside the provider, compromised UIs), don't cover **incoming** payments, and only see what the custodian signs: custodians can cap USD value across assets and chains (Fireblocks, BitGo), but on-chain wallets, other signers and bridges sit outside that cap, and on-chain rules (Safe guards) keep no shared cap **across chains**. Recent losses show that the contracts can be fine while configuration and infrastructure fail:
 - **Bybit, Feb 2025, ~$1.5B:** compromised UI + blind signing → `delegatecall` wallet takeover.
 - **KelpDAO, Apr 2026, ~$292M:** single-verifier bridge config + poisoned RPC → forged cross-chain message.
 
@@ -175,7 +175,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 | Frontend | Next.js 16, TypeScript, viem + wagmi, RainbowKit, Safe Protocol/API Kit, Tailwind + shadcn/ui, TanStack Query, RHF + Zod, Vitest, Playwright |
 | Backend | **Go** (Gin), OpenAPI (+ generated TS client), go-ethereum/abigen, PostgreSQL + sqlc + pgx, Asynq + Redis, SIWE, Go MCP SDK |
 | Indexing | The Graph (Subgraph Studio) + Go event listener |
-| Infra | Docker Compose (Postgres, Redis, Anvil×2), GitHub Actions CI, Vercel (web), Railway/Fly (Go services) |
+| Infra | Multi-repo under the Udra Org, Docker Compose devstack (Postgres, Redis, Anvil×2), GitHub Actions CI, Vercel (web), Railway/Fly (Go services) |
 | Networks | Hub: Ethereum Sepolia · Spoke: Base Sepolia · Fallback: L2 mainnet (D15) |
 | Tokens | USDC, WETH/ETH, CCIP-BnM (fallback) |
 
@@ -255,4 +255,4 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 | `r7-oracles-tokens.md` | Token list, feeds, oracle interface, mainnet cost |
 | `r9-security-testing.md` | Threat model, upgradeability, toolchain, invariants |
 | `r6 Gas, r8 MCP, r10 FE, r11 BE, r13 Competitors.md` | Gas, MCP, frontend, backend (Go), competitors, build-vs-buy |
-| **`04-tech-discovery.md`** | **This consolidation** |
+| **`04-tech-discovery.md`** | **Consolidation** |
