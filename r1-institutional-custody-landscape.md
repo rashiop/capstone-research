@@ -81,7 +81,7 @@ Common to all three, plus Fireblocks' own design guide (V):
 | Rich / private rules | ✅ | — | — |
 | Hard caps, allowlist, forbidden call types | optional | ✅ backstop | — |
 | Approval quorum above threshold | ✅ | ✅ (EIP-712 approvals) | collects signatures |
-| Receiving-side clearance (invoice, sender allowlist) | ❌ not covered by custodians | ✅ | invoice data, Functions source |
+| Receiving-side clearance (invoice, sender allowlist) | ⚠️ screening + auto-freeze only (Fireblocks AML, **V**); no invoice link, escrow or rule-based refund | ✅ | invoice data, Functions source |
 | Cap across chains | ✅ for transactions they sign (Fireblocks `asset:"*"` **L**, BitGo enterprise rules **V**) | ✅ on-chain, hub-enforced, incl. bridge lanes | message tracking |
 | Audit trail | internal logs | ✅ events (public) | indexer |
 | Agent (MCP) proposals | — | ✅ enforced like any initiator | ✅ queue |
@@ -90,7 +90,7 @@ Common to all three, plus Fireblocks' own design guide (V):
 - **Privacy of rules:** allowlists and limits are public on-chain. Mitigation: coarse on-chain caps. Revisit if the instructor pushes on privacy (possible roadmap item: hashed allowlists / ZK).
 - **Gas cost of many rules:** keep the on-chain rule set small. R3 decides the data structures.
 - **Custodian-as-signer (U → verify in R2):** confirm there's a documented Fireblocks/BitGo → Safe owner flow for the pitch slide.
-- **"Receiving side isn't covered by custodians":** inferred from the absence of inbound rules in all three docs. Treat as **L**. The pitch should say "not their focus", not "impossible".
+- **Receiving side:** Fireblocks *does* screen incoming payments (AML, KYT, Travel Rule) and can auto-freeze funds from suspicious senders (**V**). What custodians don't do: link a payment to an invoice, hold it in escrow, or refund it by rule. The pitch says "incoming checks stop at screening", not "unchecked".
 
 ## 5. Pitch one-liner
 > Custodians protect the **keys**. We protect the **transactions**: an on-chain backstop that enforces the rules even when a key, a UI or a provider is compromised. It extends to incoming payments and gives one on-chain cap across chains, which custodians' policy engines don't cover on-chain.

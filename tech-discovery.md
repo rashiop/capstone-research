@@ -8,7 +8,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 
 ## 1. Problem → solution in brief
 
-**Problem.** Institutions hold stablecoins across several chains through custodians (Fireblocks, BitGo, Coinbase Prime) whose rules live **off-chain**. Off-chain rules can be bypassed (disaster-recovery paths that sign outside the provider, compromised UIs), don't cover **incoming** payments, and only see what the custodian signs: custodians can cap USD value across assets and chains (Fireblocks, BitGo), but on-chain wallets, other signers and bridges sit outside that cap, and on-chain rules (Safe guards) keep no shared cap **across chains**. Recent losses show that the contracts can be fine while configuration and infrastructure fail:
+**Problem.** Institutions hold stablecoins across several chains through custodians (Fireblocks, BitGo, Coinbase Prime) whose rules live **off-chain**. Off-chain rules can be bypassed (disaster-recovery paths that sign outside the provider, compromised UIs), stop at **screening** for incoming payments (Fireblocks screens and auto-freezes inbound funds, but nothing links them to an invoice, holds them in escrow or refunds by rule), and only see what the custodian signs: custodians can cap USD value across assets and chains (Fireblocks, BitGo), but on-chain wallets, other signers and bridges sit outside that cap, and on-chain rules (Safe guards) keep no shared cap **across chains**. Recent losses show that the contracts can be fine while configuration and infrastructure fail:
 - **Bybit, Feb 2025, ~$1.5B:** compromised UI + blind signing → `delegatecall` wallet takeover.
 - **KelpDAO, Apr 2026, ~$292M:** single-verifier bridge config + poisoned RPC → forged cross-chain message.
 
@@ -16,12 +16,12 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 1. **Outgoing:** USD-priced limits, allowlists, tiered approvals and time-locked governance enforced by a Safe guard.
 2. **Incoming:** invoice-linked **escrow with clearance** (sanctions/KYB checks, refunds, an unmatched-cash queue).
 3. **Cross-chain:** one rulebook on a **hub chain**, with bridge messages treated as untrusted.
-4. **AI-agent-safe:** agents can **propose** via an MCP server but never spend.
+4. **AI-agent-safe:** agents can **propose** via an MCP server but never spend, enforced on-chain (Fireblocks Agent Wallets let agents spend within off-chain limits;).
 
 **Pitch lines**
 - "Custodians protect the keys. We protect the transactions."
 - "A multisig checks *who* signed. Our guard checks *what* they signed."
-- "Others guard what goes out. We also clear what comes in, keep one rulebook across chains, and let AI agents propose but never spend."
+- "Others enforce rules on their servers. We enforce them on-chain: invoice escrow, one cap across chains, agents that can't spend."
 
 ---
 

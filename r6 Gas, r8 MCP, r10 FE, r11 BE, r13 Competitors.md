@@ -161,7 +161,7 @@ The table above optimised for "one language, least infra". With those constraint
 
 | Product | What it is | What it does well | Gap relative to our project |
 |---|---|---|---|
-| **Fireblocks / BitGo / Coinbase Prime** (R1) | MPC custodians with **off-chain** policy engines | Rich private rules, key security, compliance ops | Rules are off-chain (bypassable via recovery paths, BitGo docs **V**); not focused on **incoming-payment clearance**; caps can span assets/chains (Fireblocks `asset:"*"` USD TIMEFRAME **L**, BitGo enterprise $250k/day check **V**) but only for transactions they sign, not on-chain (R1b). **We complement them:** their MPC key is a Safe owner; we add an on-chain backstop |
+| **Fireblocks / BitGo / Coinbase Prime** (R1) | MPC custodians with **off-chain** policy engines | Rich private rules, key security, compliance ops; Fireblocks also: 150+ chains, automation rules, incoming AML screening with auto-freeze, Agent Wallets (May 2026) **V** | Rules are off-chain (bypassable via recovery paths, BitGo docs **V**); incoming stops at screening/freeze (no invoice link, escrow or rule-based refund); caps can span assets/chains (Fireblocks `asset:"*"` USD TIMEFRAME **L**, BitGo enterprise $250k/day check **V**) but only for transactions they sign, not on-chain (R1b). **We complement them:** their MPC key is a Safe owner; we add an on-chain backstop |
 | **Safe + Zodiac Roles** (R2) | Multisig + role/permission module with token-unit allowances | Mature, audited, expressive permissions | No USD pricing; no receiving side; module path only (unless combined with a guard); no cross-chain rules |
 | **Cobo Argus** (R1, R3) | Safe-based role delegation with pluggable authorizers; Chainlink-priced checks | Institutional DeFi operations (farming, delegation) | Focused on **outgoing DeFi operations**, not invoices/incoming payments or cross-chain treasury **L** |
 | **Brahma** | Safe-based accounts with **sub-accounts** and access control for teams | Team operations, sub-account isolation | Outgoing-focused; no invoice escrow **L** |
@@ -175,7 +175,7 @@ The table above optimised for "one language, least infra". With those constraint
 3. **One rulebook across chains** (hub-enforced, bridge messages treated as untrusted).
 4. **AI-agent-safe by construction** (propose-only, $0 auto limit, enforced on-chain).
 
-**Slide line:** *"Custodians and Safe tools guard what goes **out**. We also clear what comes **in**, keep one rulebook across chains, and let AI agents propose but never spend."*
+**Slide line:** *"Others enforce rules on their servers. We enforce them on-chain: invoice escrow, one cap across chains, agents that can't spend."* Honest framing: Fireblocks is the mature off-chain version of much of this (see R1b §4); we build the on-chain, open version that also backs it up.
 Confidence on competitor details: **L** (docs/landing pages, time-boxed). Phrase gaps as "not their focus".
 
 ### R13.2 Build vs off-the-shelf (what we write vs what we use)
