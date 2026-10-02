@@ -6,7 +6,7 @@ An **on-chain policy backstop for institutional stablecoin treasuries**, built o
 ## 2. Problem
 - Custodian policy engines are **off-chain**: they can be bypassed (e.g., recovery paths) and hide rules from counterparties and auditors.
 - **Incoming** checks stop at screening: custodians like Fireblocks screen and auto-freeze suspicious inbound funds, but nothing ties a payment to an invoice, holds it in escrow or refunds it by rule, so unmatched payments ("unapplied cash") and sanctions exposure stay manual.
-- Treasuries span **multiple chains**. Custodian caps can span chains but only see what the custodian signs; on-chain wallet rules keep separate limits per chain with no shared cap; and bridges are a top attack target (KelpDAO $292M, 2026).
+- Treasuries span **multiple chains**. Custodian caps can span chains but only see what the custodian signs; on-chain wallet rules (e.g., Safe guards) work one chain at a time; and bridges are a top attack target (KelpDAO $292M, 2026).
 - Multisigs check **who** signed, not **what** was signed (Bybit $1.5B, 2025).
 - Teams want AI agents in finance ops but can't safely give them spending power.
 

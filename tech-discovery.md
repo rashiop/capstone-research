@@ -8,7 +8,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 
 ## 1. Problem → solution in brief
 
-**Problem.** Institutions hold stablecoins across several chains through custodians (Fireblocks, BitGo, Coinbase Prime) whose rules live **off-chain**. Off-chain rules can be bypassed (disaster-recovery paths that sign outside the provider, compromised UIs), stop at **screening** for incoming payments (Fireblocks screens and auto-freezes inbound funds, but nothing links them to an invoice, holds them in escrow or refunds by rule), and only see what the custodian signs: custodians can cap USD value across assets and chains (Fireblocks, BitGo), but on-chain wallets, other signers and bridges sit outside that cap, and on-chain rules (Safe guards) keep no shared cap **across chains**. Recent losses show that the contracts can be fine while configuration and infrastructure fail:
+**Problem.** Institutions hold stablecoins across several chains through custodians (Fireblocks, BitGo, Coinbase Prime) whose rules live **off-chain**. Off-chain rules can be bypassed through disaster-recovery paths that sign outside the provider, and compromised UIs can trick approvers into approving bad payments that pass them, stop at **screening** for incoming payments (Fireblocks screens and auto-freezes inbound funds, but nothing links them to an invoice, holds them in escrow or refunds by rule), and only see what the custodian signs: custodians can cap USD value across assets and chains (Fireblocks, BitGo), but on-chain wallets, other signers and bridges sit outside that cap, and on-chain wallet rules (e.g., Safe guards) work one chain at a time, with no shared cap **across chains** (R1b). Recent losses show that the contracts can be fine while configuration and infrastructure fail:
 - **Bybit, Feb 2025, ~$1.5B:** compromised UI + blind signing → `delegatecall` wallet takeover.
 - **KelpDAO, Apr 2026, ~$292M:** single-verifier bridge config + poisoned RPC → forged cross-chain message.
 
@@ -16,7 +16,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 1. **Outgoing:** USD-priced limits, allowlists, tiered approvals and time-locked governance enforced by a Safe guard.
 2. **Incoming:** invoice-linked **escrow with clearance** (sanctions/KYB checks, refunds, an unmatched-cash queue).
 3. **Cross-chain:** one rulebook on a **hub chain**, with bridge messages treated as untrusted.
-4. **AI-agent-safe:** agents can **propose** via an MCP server but never spend, enforced on-chain (Fireblocks Agent Wallets let agents spend within off-chain limits;).
+4. **AI-agent-safe:** agents can **propose** via an MCP server but never spend, enforced on-chain (Fireblocks Agent Wallets let agents spend within off-chain limits; R1b §4).
 
 **Pitch lines**
 - "Custodians protect the keys. We protect the transactions."
@@ -175,7 +175,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 | Frontend | Next.js 16, TypeScript, viem + wagmi, RainbowKit, Safe Protocol/API Kit, Tailwind + shadcn/ui, TanStack Query, RHF + Zod, Vitest, Playwright |
 | Backend | **Go** (Gin), OpenAPI (+ generated TS client), go-ethereum/abigen, PostgreSQL + sqlc + pgx, Asynq + Redis, SIWE, Go MCP SDK |
 | Indexing | The Graph (Subgraph Studio) + Go event listener |
-| Infra | Multi-repo under the Udra Org, Docker Compose devstack (Postgres, Redis, Anvil×2), GitHub Actions CI, Vercel (web), Railway/Fly (Go services) |
+| Infra | Multi-repo under the Udra GitHub org, Docker Compose devstack (Postgres, Redis, Anvil×2), GitHub Actions CI, Vercel (web), Railway/Fly (Go services) |
 | Networks | Hub: Ethereum Sepolia · Spoke: Base Sepolia · Fallback: L2 mainnet (D15) |
 | Tokens | USDC, WETH/ETH, CCIP-BnM (fallback) |
 
