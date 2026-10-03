@@ -1,7 +1,5 @@
 # R5 — Cross-Chain: CCIP vs LayerZero V2 (vs CCTP)
 
-_Step 3 research, Wave 1. Researched 2026-09-25 (v2 same day: adoption evidence, LayerZero institutional score corrected 3→4, deeper notes §10, testnet faucets §10). Method: `02a-research-method.md` (gates + D7 weights). Confidence: **V** Verified in primary source · **L** Likely · **U** Unverified. **Decision: approved → D11.**_
-
 ## 1. Decision & requirements served
 - **Decisions:** (a) which cross-chain protocol, (b) the hub-and-spoke topology, (c) **where policy is enforced** on cross-chain payments, (d) which tokens can move on testnet (feeds D3/R7).
 - **Serves:** F5 (cross-chain payments), F2/F3 (receiving cross-chain payments), F6 (fees), F7 (who pays).
@@ -33,7 +31,7 @@ _Step 3 research, Wave 1. Researched 2026-09-25 (v2 same day: adoption evidence,
 
 **Pros**
 - **Tokens + data arrive atomically** (§9.1 explains why this matters).
-- **Same vendor as our oracle (Data Feeds) and possible compliance hook (Functions, M13)** (§9.3 covers the trade-off).
+- **Same vendor as our oracle (Data Feeds) and possible compliance hook (CRE; Chainlink Functions was sunset 2026-06-30** (§9.3 covers the trade-off).
 - **Institutional positioning:** the strongest bank / financial-market-infrastructure track record of the options (§9.2).
 - **Defence in depth built in:** RMN plus per-token **rate limits** (token-bucket capacity + refill rate) on token pools. **V**
 - **Own token later:** the Cross-Chain Token (CCT) standard lets us register our own token self-serve with Burn&Mint or Lock&Release pools. **V**
@@ -55,7 +53,7 @@ _Step 3 research, Wave 1. Researched 2026-09-25 (v2 same day: adoption evidence,
 
 | Issue | Status / fix |
 |---|---|
-| **Receiver revert → message stuck in "manual execution".** Happens on unhandled errors, too little gas, or token pools needing > 90k gas. After the **Smart Execution window (currently 8 hours)**, later messages from the same sender wait behind it (ordering preserved). **V** | **Our fix:** the receiver **never reverts on business logic**. It accepts tokens into escrow with a status (Pending / Flagged) and handles invoice mismatch or unknown sender *inside* our state machine (clear / refund). Only revert on "impossible" conditions (wrong router, wrong source). |
+| **Receiver revert → message stuck in "manual execution".** Happens on unhandled errors, too little gas, or token pools needing > 90k gas. It then needs manual execution. **V** | **Our fix:** the receiver **never reverts on business logic**. It accepts tokens into escrow with a status (Pending / Flagged) and handles invoice mismatch or unknown sender *inside* our state machine (clear / refund). Only revert on "impossible" conditions (wrong router, wrong source). |
 | **Spoofed messages** (anyone can call `ccipReceive` if unchecked). | Only accept calls from the Router (`CCIPReceiver` base does this); allowlist `(sourceChainSelector, sender)` pairs. |
 | CCIP had a public audit contest (Code4rena, Nov 2024, OffRamp code). **V** | Use official releases; pin versions. |
 
@@ -483,3 +481,10 @@ Undecided. It's a fresh civil case, and only a court can assign legal liability 
 - CoinDesk — KelpDAO sues LayerZero and CEO: https://www.coindesk.com/business/2026/09/25/kelpdao-sues-layerzero-for-the-largest-exploit-2026-has-seen-so-far
 - CoinDesk — Kelp says LayerZero approved the setup (2026-05-05): https://www.coindesk.com/web3/2026/05/05/kelp-claims-that-layerzero-approved-the-setup-it-blamed-for-usd292-million-bridge-hack
 - Chainlink faucets: https://faucets.chain.link/sepolia · https://faucets.chain.link/base-sepolia
+
+
+## 11. Update 2026-10-02 — CCIP 2.0 (announced 28 Sep 2026)
+- **What's new (V, secondary press):** optional **Cross-Chain Verifiers (CCVs)** that token issuers or apps can require, on top of a default **Committee Verifier of 16 independent node operators**; an **Automated Compliance Engine (ACE)** for KYC/AML/sanctions, transaction limits and allow/deny lists aimed at **token issuers**; configurable confirmation thresholds for faster settlement.
+- **Risk noted by CryptoSlate:** a required issuer verifier can stall delivery after tokens are locked/burned on the source chain.
+- **Impact on us:** none to the decision (D11). **Correction (2026-10-03, V via docs.chain.link/ace and Chainlink's ACE technical overview):** ACE is *not* only for token issuers. Its Policy Manager (on-chain contracts plus an off-chain part) can protect any contract function, with ready-made policies: allow/deny list, negative credentials, RBAC, volume rate limit, time limit, secure mint, pause, balance limit, max holders. It is in **early access**. It is the closest on-chain policy toolkit to our engine; it does not provide a treasury product (USD budgets across chains, approval tiers/maker-checker, invoice escrow, agent boundary). Roadmap option: evaluate ACE as a building block for the engine. **Spike S1** must check whether CCIP 2.0 changes the receiver interface, fees or testnet lanes, and whether USDC / CCIP-BnM lanes require any CCV.
+- Sources: cryptobriefing.com/chainlink-ccip-2-launch-cross-chain-security; cryptoslate.com/chainlink-ccip-2-0-lets-issuers-delay-delivery-after-a-cross-chain-transfer-starts; docs.chain.link/ccip/concepts/manual-execution.

@@ -2,8 +2,7 @@
 
 _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–D21 into one reference. Input for Step 5 (PRD, solution design, system architecture) and the pitch deck. Source of truth for decisions: `00-decisions-log.md`._
 
-**Working name:** *Treasury Policy Layer*
-
+**Working name:** *Treasury Policy Layer*\
 ---
 
 ## 1. Problem → solution in brief
@@ -21,7 +20,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 **Pitch lines**
 - "Custodians protect the keys. We protect the transactions."
 - "A multisig checks *who* signed. Our guard checks *what* they signed."
-- "Others enforce rules on their servers. We enforce them on-chain: invoice escrow, one cap across chains, agents that can't spend."
+- "Others enforce rules on their servers. We enforce them on-chain: invoice escrow, one cap across chains, agents that can't spend.
 
 ---
 
@@ -203,7 +202,7 @@ _Written 2026-09-27. Consolidates Step 3 research (R1–R13) and decisions D1–
 
 | # | Spike / check | Exit criteria | If it fails |
 |---|---|---|---|
-| S1 | **CCIP hub ↔ spoke** with Programmable Token Transfer (Chainlink Local → real testnet); USDC lane check | Token + invoiceId delivered; receiver never reverts; latency/fee measured | CCIP-BnM demo token; if CCIP fails entirely → single-chain MVP (D10) |
+| S1 | **CCIP hub ↔ spoke** with Programmable Token Transfer (Chainlink Local → real testnet); USDC lane check; CCIP 2.0 impact (receiver interface, fees, any required verifier) | Token + invoiceId delivered; receiver never reverts; latency/fee measured | CCIP-BnM demo token; if CCIP fails entirely → single-chain MVP (D10) |
 | S2 | **Safe v1.5 + PolicyGuard** on Sepolia (tx guard + module guard, anti-bricking removal) | Guard blocks/permits as designed; removal after delay works | Safe v1.4.1 + tx guard; PaymentModule self-checks |
 | S3 | **Safe v1.5 + `Safe4337Module` + Pimlico/Candide** with custom addresses | Sponsored user op executes **and** hits our module guard | Keep relayer-only (Must already covers F7) |
 | S4 | **Price feeds** on Sepolia (USDC/USD, ETH/USD addresses, heartbeats, liveness) | Addresses + heartbeats recorded in config | Fixed-$1 mock for USDC (time-locked switch) |

@@ -81,7 +81,7 @@ Common to all three, plus Fireblocks' own design guide (V):
 | Rich / private rules | ✅ | — | — |
 | Hard caps, allowlist, forbidden call types | optional | ✅ backstop | — |
 | Approval quorum above threshold | ✅ | ✅ (EIP-712 approvals) | collects signatures |
-| Receiving-side clearance (invoice, sender allowlist) | ⚠️ screening + auto-freeze only (Fireblocks AML, **V**); no invoice link, escrow or rule-based refund | ✅ | invoice data, Functions source |
+| Receiving-side clearance (invoice, sender allowlist) | ⚠️ screening only: Fireblocks AML with auto-freeze (**V**); Coinbase custody blocks and reports deposits from OFAC-sanctioned addresses (**V**); BitGo offers KYT screening, freeze not confirmed (**L**); no invoice link, escrow or rule-based refund | ✅ | invoice data, Functions source |
 | Cap across chains | ✅ for transactions they sign (Fireblocks `asset:"*"` **L**, BitGo enterprise rules **V**) | ✅ on-chain, hub-enforced, incl. bridge lanes | message tracking |
 | Audit trail | internal logs | ✅ events (public) | indexer |
 | Agent (MCP) proposals | — | ✅ enforced like any initiator | ✅ queue |
